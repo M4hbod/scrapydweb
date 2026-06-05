@@ -102,7 +102,7 @@ class TaskExecutor:
         js = {}
         try:
             status_code, js = _request_scrapyd_sync(url, self.data, auth)
-            assert status_code == 200 and js.get('status') == 'ok', "Request got %s" % js
+            assert js['status_code'] == 200 and js['status'] == 'ok', "Request got %s" % js
         except Exception as err:
             if node not in self.nodes_to_retry:
                 apscheduler_logger.warning("Fail to execute task #%s (%s) on node %s, would retry later: %s",
