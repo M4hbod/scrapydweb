@@ -39,7 +39,10 @@ def test_check(app, client):
         _version=cst.VERSION,
         spider=cst.SPIDER,
         jobid=cst.JOBID,
-        additional="-d setting=LOGSTATS_INTERVAL=10"  # For the test_telnet_in_stats() below
+        # LOGSTATS_INTERVAL + a slow DOWNLOAD_DELAY keep the spider alive long enough for
+        # test_telnet_in_stats()/test_run()/test_pending_jobs() to observe a running job
+        # (the egg's own DOWNLOAD_DELAY was lowered to speed up the other tests).
+        additional="-d setting=LOGSTATS_INTERVAL=10 -d setting=DOWNLOAD_DELAY=10"
 
     )
     req(app, client, view='schedule.check', kws=dict(node=NODE), data=data,
@@ -151,28 +154,35 @@ def test_telnet_in_stats(app, client):
     telnet_nos = ["CRITICAL: Unhandled Error", "telnet.OptionRefused"]
     req(app, client, view='schedule.run', kws=dict(node=NODE), data=run_data, ins="run results - ScrapydWeb")
 
-    kws = dict(node=node, opt='stats', project=cst.PROJECT, spider=cst.SPIDER, job=cst.JOBID)
-    for i in range(1, 4):
-        sleep(10)
-        print(i * 10)
-        text, __ = req(app, client, view='log', kws=kws)
-        if desktop_ins[-1] in text and telnet_ins[-1] in text:
-            print("Found: %s %s" % (desktop_ins[-1], telnet_ins[-1]))
-            break
-    # test jobs POST data={} to save pages and items in database
-    __, js = req(app, client, view='jobs', kws=dict(node=node), data={})
-    assert isinstance(js[KEY]['pages'], int)  # and js[KEY]['pages'] > 0
-
     # Linux-5.0.9-301.fc30.x86_64-x86_64-with-fedora-30-Thirty'
     if (platform.system() == 'Windows' or 'fedora' in platform.platform()) and scrapy_version > '1.5.1':
         print("telnet not available for scrapy_version: %s" % scrapy_version)
         telnet_ins = []
 
-    req(app, client, view='log', kws=kws, ins=desktop_ins + telnet_ins, nos=telnet_nos)
+    # Reading the live telnet console is racy (transient connect failures), so poll the
+    # full desktop+telnet condition instead of asserting once. The spider stays alive long
+    # enough (DOWNLOAD_DELAY set in test_check) to keep retrying.
+    def poll_stats(view_kws, ins, mobileui=False):
+        text = ''
+        for i in range(8):
+            sleep(4)
+            print((i + 1) * 4)
+            text, __ = req(app, client, view='log', kws=view_kws, mobileui=mobileui)
+            if all(s in text for s in ins) and not any(n in text for n in telnet_nos):
+                print("Found stats for %s" % view_kws)
+                return
+        # exhausted retries: assert once more for a clear failure message
+        req(app, client, view='log', kws=view_kws, ins=ins, nos=telnet_nos, mobileui=mobileui)
+
+    kws = dict(node=node, opt='stats', project=cst.PROJECT, spider=cst.SPIDER, job=cst.JOBID)
+    poll_stats(kws, desktop_ins + telnet_ins)
+
+    # test jobs POST data={} to save pages and items in database
+    __, js = req(app, client, view='jobs', kws=dict(node=node), data={})
+    assert isinstance(js[KEY]['pages'], int)  # and js[KEY]['pages'] > 0
 
     kws.update(ui='mobile')
-    req(app, client, view='log', kws=kws,
-        ins=mobile_ins + telnet_ins, nos=telnet_nos, mobileui=True)
+    poll_stats(kws, mobile_ins + telnet_ins, mobileui=True)
 
     req(app, client, view='api',
         kws=dict(node=node, opt='forcestop', project=cst.PROJECT, version_spider_job=cst.JOBID))

@@ -79,6 +79,7 @@ def app():
         SCRAPY_PROJECTS_DIR=os.path.join(cst.ROOT_DIR, 'data'),
 
         ENABLE_LOGPARSER=False,
+        LOGPARSER_PARSE_ROUND_INTERVAL=2,  # speed up tests: parse logs every 2s instead of the 10s default
 
         ALERT_WORKING_DAYS=list(range(1, 8)),
         ALERT_WORKING_HOURS=list(range(24)),

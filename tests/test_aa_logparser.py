@@ -51,7 +51,7 @@ def test_enable_logparser(app, client):
     assert app.config['POLL_PID'] is None
     req(app, client, view='settings', kws=dict(node=1), ins='logparser_pid: %s' % logparser_pid)
 
-    sleep()
+    sleep(8)  # LogParser startup (~3s) + a couple of parse rounds (interval 2s)
 
     stats_json = json_loads_from_file(app.config['STATS_JSON_PATH'])
     assert stats_json['logparser_version'] == cst.LOGPARSER_VERSION
