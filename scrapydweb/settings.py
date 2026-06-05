@@ -34,6 +34,22 @@ class Settings(dict):
     def from_mapping(self, *args, **kwargs):
         self.update(*args, **kwargs)
 
+    def from_pyfile(self, path, silent=False):
+        import types
+        module = types.ModuleType('scrapydweb_user_settings')
+        module.__file__ = path
+        try:
+            with open(path, 'rb') as f:
+                exec(compile(f.read(), path, 'exec'), module.__dict__)
+        except IOError:
+            if silent:
+                return False
+            raise
+        for key in dir(module):
+            if key.isupper():
+                self[key] = getattr(module, key)
+        return True
+
 
 def build_settings(overrides=None):
     settings = Settings(_defaults())
