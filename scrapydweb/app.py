@@ -26,6 +26,8 @@ STATIC_DIR = ROOT_DIR + '/static'
 
 @asynccontextmanager
 async def lifespan(app):
+    from .services.scrapyd import new_client
+    app.state.http_client = new_client()
     await init_db()
     await ensure_metadata_row()
     meta = await get_metadata()
@@ -35,6 +37,7 @@ async def lifespan(app):
     else:
         await set_metadata('pageview', 1)
     yield
+    await app.state.http_client.aclose()
     await dispose_db()
 
 
