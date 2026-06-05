@@ -41,15 +41,13 @@ async def lifespan(app):
         await set_metadata('pageview', 1)
 
     set_tasks_app(app)
+    # BackgroundScheduler runs in its own thread; start once and keep it running
+    # across app/test lifecycles (do not shut it down per request lifespan).
     if not scheduler.running:
         scheduler.start(paused=True)
-    if meta.get('scheduler_state') == STATE_RUNNING:
-        scheduler.resume()
+        if meta.get('scheduler_state') == STATE_RUNNING:
+            scheduler.resume()
     yield
-    try:
-        scheduler.shutdown(wait=False)
-    except Exception:
-        pass
     await app.state.http_client.aclose()
     await dispose_db()
 
