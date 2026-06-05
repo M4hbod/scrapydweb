@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 import re
 
-from flask import url_for
+from tests.utils import url_for
 from six.moves.urllib.parse import unquote_plus
 
 from tests.utils import cst, req, req_single_scrapyd, sleep, switch_scrapyd, upload_file_deploy

@@ -4,7 +4,7 @@ import io
 import os
 import re
 
-from flask import url_for
+from tests.utils import url_for
 
 from scrapydweb.vars import DEMO_PROJECTS_PATH
 from tests.utils import cst, req_single_scrapyd, set_single_scrapyd, upload_file_deploy

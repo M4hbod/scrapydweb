@@ -6,7 +6,7 @@ import os
 import re
 import time
 
-from flask import url_for
+from tests.utils import url_for
 
 from scrapydweb.utils.poll import main as poll_py_main
 from tests.utils import cst, req, sleep, upload_file_deploy

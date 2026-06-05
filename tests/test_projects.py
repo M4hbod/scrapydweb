@@ -1,7 +1,7 @@
 # coding: utf-8
 from collections import OrderedDict
 
-from flask import url_for
+from tests.utils import url_for
 
 from tests.utils import cst, get_text, req, upload_file_deploy
 

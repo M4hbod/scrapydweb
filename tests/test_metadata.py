@@ -1,7 +1,7 @@
 # coding: utf-8
 import time
 
-from flask import url_for
+from tests.utils import url_for
 from apscheduler.schedulers.base import STATE_PAUSED, STATE_RUNNING
 
 from scrapydweb import __version__
