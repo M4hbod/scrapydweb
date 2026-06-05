@@ -300,8 +300,12 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
             task.coalesce = 'True' if task_data['coalesce'] else 'False'
             task.update_time = datetime.now()
             if not to_update:
+                # A new task is persisted regardless of whether the apscheduler job is
+                # valid (matches legacy behavior; failed jobs leave a re-editable task).
                 session.add(task)
-            await session.flush()  # assign id without committing (commit only if add_job succeeds)
+                await session.commit()
+            else:
+                await session.flush()  # stage the update; commit only if add_job succeeds
             task_id = task.id
 
             kwargs = dict(task_id=task_id)
@@ -315,16 +319,20 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
             elif action == 'add_pause':
                 task_data['next_run_time'] = None
                 postfix = "Click the Paused button to resume it. "
+            msg = ''
             try:
                 job_instance = scheduler.add_job(func=execute_task, args=None, kwargs=kwargs,
                                                  replace_existing=True, **task_data)
             except Exception as err:
-                await session.rollback()  # do not persist the task if the apscheduler job is invalid
+                if to_update:
+                    await session.rollback()  # keep the existing task unchanged
                 add_task_result = False
                 add_task_error = str(err)
-                apscheduler_logger.error(traceback.format_exc())
+                msg = traceback.format_exc()
+                apscheduler_logger.error(msg)
             else:
-                await session.commit()
+                if to_update:
+                    await session.commit()
                 if to_update and action == 'add_fire':
                     job_instance.modify(next_run_time=datetime.now())
                 add_task_result = True
@@ -339,7 +347,11 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
                     trigger=repr(job_instance.trigger), next_run_time=repr(job_instance.next_run_time))
                 apscheduler_logger.warning("%s job_instance: \n%s", "Updated" if to_update else 'Added',
                                            json_dumps(job_instance_dict))
-        add_task_message = add_task_flash or add_task_error
+            if 'next_run_time' in task_data:
+                task_data['next_run_time'] = str(task_data['next_run_time'] or NA)
+            add_task_message = (u"{msg}\nkwargs for execute_task():\n{kwargs}\n\n"
+                                u"task_data for scheduler.add_job():\n{task_data}").format(
+                msg=msg, kwargs=json_dumps(kwargs), task_data=json_dumps(task_data))
     else:
         status_code, js = await request_scrapyd(app.state.http_client, url, data=data, auth=auth, as_json=True)
 
