@@ -34,3 +34,9 @@ def handle_slash(string):
 
 def json_dumps(obj, sort_keys=True, indent=4, ensure_ascii=False):
     return json.dumps(obj, sort_keys=sort_keys, indent=indent, ensure_ascii=ensure_ascii)
+
+
+def get_job_without_ext(job):
+    if job.endswith('.tar.gz'):
+        return job[:-len('.tar.gz')]
+    return os.path.splitext(job)[0]
