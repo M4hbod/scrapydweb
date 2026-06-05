@@ -1,6 +1,6 @@
 # coding: utf-8
 import time
-from flask import url_for
+from tests.utils import url_for
 
 from tests.utils import cst, req_single_scrapyd, sleep, upload_file_deploy
 

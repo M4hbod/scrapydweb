@@ -11,11 +11,25 @@ import sys
 import time
 import zipfile
 
-from flask import url_for
 from six import string_types
 
 from logparser import __version__ as logparser_version
+from scrapydweb.urls import url_for as _url_for
 from scrapydweb.vars import DATABASE_PATH, LEGAL_NAME_PATTERN, STATS_PATH, setup_logfile
+
+
+# The app under test, set by the `app` fixture in conftest.py, so url_for() can be
+# called the same way as the old Flask url_for (no request context needed).
+_app = None
+
+
+def set_app(app):
+    global _app
+    _app = app
+
+
+def url_for(view, **kws):
+    return _url_for(_app, view, **kws)
 
 
 class Constant(object):
@@ -96,7 +110,7 @@ cst = Constant()
 
 
 def get_text(response):
-    return response.get_data(as_text=True)
+    return response.text
 
 
 def req(app, client, view='', kws=None, url='', data=None,
@@ -106,16 +120,17 @@ def req(app, client, view='', kws=None, url='', data=None,
     if single_scrapyd:
         set_single_scrapyd(app, set_to_second)
 
-    with app.test_request_context():
+    if True:
         if not url:
             url = url_for(view, **kws)
         if data is not None:
-            response = client.post(url, headers=headers, data=data, content_type=content_type)
+            form, files = _split_form_files(data)
+            response = client.post(url, headers=headers, data=form, files=files or None)
         else:
             response = client.get(url, headers=headers)
         if save:
             with io.open('%s.html' % save, 'wb') as f:
-                f.write(response.data)
+                f.write(response.content)
         text = get_text(response)
         try:
             # js = response.get_json()
@@ -186,10 +201,26 @@ def req(app, client, view='', kws=None, url='', data=None,
                 assert 'Desktop version' not in text
         except:
             with io.open('response.html', 'wb') as f:
-                f.write(response.data)
+                f.write(response.content)
             raise
 
         return text, js
+
+
+def _split_form_files(data):
+    """Split a Flask-style test data dict into httpx (form, files).
+
+    File fields are passed as a (path, filename) tuple (the old Werkzeug test
+    client format); everything else is a plain form field.
+    """
+    form, files = {}, {}
+    for key, value in data.items():
+        if isinstance(value, tuple):
+            path, filename = value[0], value[1]
+            files[key] = (filename, open(path, 'rb'))
+        else:
+            form[key] = value
+    return form, files
 
 
 def req_single_scrapyd(*args, **kwargs):
@@ -295,9 +326,10 @@ def upload_file_deploy(app, client, filename, project, multinode=False,
     }
     if multinode:
         data.update({'1': 'on', '2': 'on', 'checked_amount': '2'})
-    with app.test_request_context():
+    if True:
         url = url_for('deploy.upload', node=1)
-        response = client.post(url, content_type='multipart/form-data', data=data)
+        form, files = _split_form_files(data)
+        response = client.post(url, data=form, files=files or None)
         text = get_text(response)
         if fail:
             assert response.status_code == 200 and "fail - ScrapydWeb" in text
