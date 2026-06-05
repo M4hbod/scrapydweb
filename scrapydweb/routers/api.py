@@ -98,8 +98,8 @@ def _extract_pages_items(js, project, version_spider_job):
     return dict(status=OK, details=details)
 
 
-async def api(request: Request, opt: str, project: str = None, version_spider_job: str = None,
-              ctx: NodeContext = Depends(get_node_context)):
+async def call_api(request, ctx, opt, project=None, version_spider_job=None):
+    """Run a Scrapyd API call and return the result dict (shared by api/projects/nodereports)."""
     url = _build_url(ctx, opt, project, version_spider_job)
     data = _build_data(opt, project, version_spider_job)
     timeout = 3 if opt == 'daemonstatus' else 60
@@ -111,8 +111,12 @@ async def api(request: Request, opt: str, project: str = None, version_spider_jo
         if times != 1:
             js['times'] = times
             await asyncio.sleep(2)
-    js = _handle_result(js, status_code, opt, project, version_spider_job, ctx.SCRAPYD_SERVER)
-    return JSONResponse(js)
+    return _handle_result(js, status_code, opt, project, version_spider_job, ctx.SCRAPYD_SERVER)
+
+
+async def api(request: Request, opt: str, project: str = None, version_spider_job: str = None,
+              ctx: NodeContext = Depends(get_node_context)):
+    return JSONResponse(await call_api(request, ctx, opt, project, version_spider_job))
 
 
 for _path in ('/{node:int}/api/{opt}/{project}/{version_spider_job}/',
