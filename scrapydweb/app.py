@@ -27,6 +27,9 @@ STATIC_DIR = ROOT_DIR + '/static'
 @asynccontextmanager
 async def lifespan(app):
     from .services.scrapyd import new_client
+    from .services.tasks import set_app as set_tasks_app
+    from .scheduler import scheduler
+    from apscheduler.schedulers.base import STATE_RUNNING
     app.state.http_client = new_client()
     await init_db()
     await ensure_metadata_row()
@@ -36,7 +39,17 @@ async def lifespan(app):
         await set_metadata('pageview', 0)
     else:
         await set_metadata('pageview', 1)
+
+    set_tasks_app(app)
+    if not scheduler.running:
+        scheduler.start(paused=True)
+    if meta.get('scheduler_state') == STATE_RUNNING:
+        scheduler.resume()
     yield
+    try:
+        scheduler.shutdown(wait=False)
+    except Exception:
+        pass
     await app.state.http_client.aclose()
     await dispose_db()
 
