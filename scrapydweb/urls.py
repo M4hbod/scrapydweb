@@ -32,3 +32,11 @@ def url_for(app, name, **values):
             return path
 
     raise NoMatchFound(name, values)
+
+
+def safe_url_for(app, name, **values):
+    """Tolerant url_for for in-page links to routes not yet ported (-> '#')."""
+    try:
+        return url_for(app, name, **values)
+    except NoMatchFound:
+        return '#'
