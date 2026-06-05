@@ -6,7 +6,7 @@ import os
 from tests.utils import url_for
 
 from scrapydweb.utils.check_app_config import check_app_config
-from scrapydweb.views.files.log import REPORT_KEYS_SET
+from scrapydweb.routers.log import REPORT_KEYS_SET
 from tests.utils import cst, req, replace_file_content, sleep
 
 

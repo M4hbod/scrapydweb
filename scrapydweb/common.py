@@ -8,6 +8,45 @@ services/deps during the FastAPI migration.
 import json
 import os
 import time
+import traceback
+
+import requests
+from requests.adapters import HTTPAdapter
+
+# Sync HTTP session (used by check_app_config / send_text helpers, not the async app path).
+session = requests.Session()
+session.mount('http://', HTTPAdapter(pool_connections=1000, pool_maxsize=1000))
+session.mount('https://', HTTPAdapter(pool_connections=1000, pool_maxsize=1000))
+
+
+def handle_metadata(key=None, value=None):
+    """Synchronous metadata get/set (separate sync engine on the metadata bind).
+
+    The async app uses scrapydweb.db.get_metadata/set_metadata; this sync variant
+    exists for code that runs outside the event loop (check_app_config, run.py CLI).
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from .__version__ import __version__
+    from .models import Metadata
+    from .vars import SQLALCHEMY_BINDS
+
+    engine = create_engine(SQLALCHEMY_BINDS['metadata'])
+    s = sessionmaker(bind=engine)()
+    try:
+        metadata = s.query(Metadata).filter_by(version=__version__).first()
+        if key is None:
+            return {k: v for k, v in metadata.__dict__.items() if not k.startswith('_')} if metadata else {}
+        if metadata is not None:
+            try:
+                setattr(metadata, key, value)
+                s.commit()
+            except Exception:
+                print(traceback.format_exc())
+                s.rollback()
+    finally:
+        s.close()
+        engine.dispose()
 
 
 def find_scrapydweb_settings_py(filename, path, prevpath=None):
