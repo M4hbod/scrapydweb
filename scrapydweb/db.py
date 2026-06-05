@@ -53,7 +53,7 @@ SessionLocal = async_sessionmaker(
     bind=engines[None],
     sync_session_class=RoutingSession,
     expire_on_commit=False,
-    autoflush=True,
+    autoflush=False,  # read-then-decorate loops mutate mapped cols for display; never auto-persist
 )
 
 
