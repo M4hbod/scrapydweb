@@ -75,5 +75,5 @@ def compute_features(settings, ctx, jobs_style, any_jobs, scheduler_state):
     return F
 
 
-def get_node_context(node: int, request: Request) -> NodeContext:
+def get_node_context(request: Request, node: int = 1) -> NodeContext:
     return NodeContext(node, request.app.state.settings, request)
