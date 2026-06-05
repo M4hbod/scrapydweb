@@ -119,6 +119,37 @@ async def set_metadata(key, value):
         await session.commit()
 
 
+import re as _re  # noqa: E402
+
+from .models import create_jobs_table  # noqa: E402
+from .vars import STRICT_NAME_PATTERN  # noqa: E402
+
+_jobs_tables = {}
+
+
+async def get_jobs_table(node, server):
+    """Get (and create) the per-server Job table model + physical table (jobs bind)."""
+    if node in _jobs_tables:
+        return _jobs_tables[node]
+    Job = create_jobs_table(_re.sub(STRICT_NAME_PATTERN, '_', server))
+    await create_all_for_bind('jobs')
+    _jobs_tables[node] = Job
+    return Job
+
+
+def jobs_table_for(node):
+    return _jobs_tables.get(node)
+
+
+class Pagination:
+    def __init__(self, items, page, per_page, total):
+        self.items = items
+        self.page = page
+        self.per_page = per_page
+        self.total = total
+        self.pages = max(1, (total + per_page - 1) // per_page) if per_page else 1
+
+
 async def ensure_metadata_row():
     async with SessionLocal() as session:
         row = (await session.execute(

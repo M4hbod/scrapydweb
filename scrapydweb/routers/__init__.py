@@ -4,8 +4,10 @@
 
 def register_routers(app):
     # Routers are added here phase by phase during the FastAPI migration.
-    from . import api, metadata, servers, settings
+    from . import api, index, jobs, metadata, servers, settings
+    app.include_router(index.router)
     app.include_router(metadata.router)
     app.include_router(api.router)
     app.include_router(settings.router)
     app.include_router(servers.router)
+    app.include_router(jobs.router)
