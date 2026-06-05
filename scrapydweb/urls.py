@@ -17,6 +17,18 @@ def url_for(app, name, **values):
         path = values.get('filename', values.get('path', ''))
         return str(app.url_path_for('static', path=path))
 
+    if name == 'sendtextapi':
+        # opt is a literal path prefix (slack/telegram/tg/email), not a path param.
+        opt = values['opt']
+        parts = ['/' + opt]
+        ccs = values.get('channel_chatid_subject')
+        text = values.get('text')
+        if ccs is not None:
+            parts.append(str(ccs))
+        if text is not None:
+            parts.append(str(text))
+        return '/'.join(parts)
+
     provided = {k: v for k, v in values.items() if v is not None}
     routes = [r for r in app.routes
               if getattr(r, 'name', None) == name and hasattr(r, 'param_convertors')]
