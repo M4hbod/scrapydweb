@@ -26,7 +26,7 @@ from ..services.tasks import execute_task
 from ..templating import render
 from ..urls import safe_url_for as u, url_for
 from ..vars import LEGAL_NAME_PATTERN, RUN_SPIDER_HISTORY_LOG, SCHEDULE_ADDITIONAL, SCHEDULE_PATH, STRICT_NAME_PATTERN, UA_DICT
-from ..views.operations.utils import slot
+from ..services.deploy_utils import slot
 
 router = APIRouter()
 apscheduler_logger = logging.getLogger('apscheduler')
