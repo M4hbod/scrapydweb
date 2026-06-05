@@ -12,7 +12,8 @@ import re
 import traceback
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse
+from ..responses import redirect as _redirect
 from sqlalchemy import select
 
 from ..common import get_now_string, json_dumps
@@ -348,13 +349,13 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
     # response
     if action in ['add', 'add_fire', 'add_pause']:
         if add_task_result:
-            return RedirectResponse(url_for(app, 'tasks', node=node, flash=add_task_flash), status_code=302)
+            return _redirect(url_for(app, 'tasks', node=node, flash=add_task_flash))
         return render(request, _fail(ctx), node, ctx, page=dict(
             node=node, alert="Fail to add/edit task with error:", text=add_task_error,
             tip="Re-edit the task. ", message=add_task_message))
     if js.get('status') == OK:
         if not selected_amount:
-            return RedirectResponse(url_for(app, 'jobs', node=node), status_code=302)
+            return _redirect(url_for(app, 'jobs', node=node))
         page = dict(
             node=node, project=data['project'], version=data.get('_version', DEFAULT_LATEST_VERSION),
             spider=data['spider'], selected_nodes=selected_nodes, first_selected_node=first, js=js,
@@ -408,12 +409,13 @@ async def schedule_task(request: Request, node: int, ctx: NodeContext = Depends(
     return JSONResponse(js)
 
 
+# Specific routes MUST be registered before the generic /schedule/{project}/ variants.
+router.add_api_route('/{node:int}/schedule/check/', schedule_check, methods=['POST'], name='schedule.check')
+router.add_api_route('/{node:int}/schedule/run/', schedule_run, methods=['POST'], name='schedule.run')
+router.add_api_route('/{node:int}/schedule/xhr/{filename}/', schedule_xhr, methods=['GET', 'POST'], name='schedule.xhr')
+router.add_api_route('/{node:int}/schedule/task/', schedule_task, methods=['POST'], name='schedule.task')
 for _p in ('/{node:int}/schedule/{project}/{version}/{spider}/',
            '/{node:int}/schedule/{project}/{version}/',
            '/{node:int}/schedule/{project}/',
            '/{node:int}/schedule/'):
     router.add_api_route(_p, schedule_view, methods=['GET', 'POST'], name='schedule')
-router.add_api_route('/{node:int}/schedule/check/', schedule_check, methods=['POST'], name='schedule.check')
-router.add_api_route('/{node:int}/schedule/run/', schedule_run, methods=['POST'], name='schedule.run')
-router.add_api_route('/{node:int}/schedule/xhr/{filename}/', schedule_xhr, methods=['GET', 'POST'], name='schedule.xhr')
-router.add_api_route('/{node:int}/schedule/task/', schedule_task, methods=['POST'], name='schedule.task')
