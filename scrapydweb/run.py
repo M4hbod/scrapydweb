@@ -5,13 +5,12 @@ import os
 from shutil import copyfile
 import sys
 
-from flask import request
+import uvicorn
 
-# from . import create_app  # --debug: ImportError: cannot import name 'create_app'
 # python -m scrapydweb.run
 from scrapydweb import create_app
 from scrapydweb.__version__ import __description__, __version__
-from scrapydweb.common import authenticate, find_scrapydweb_settings_py, handle_metadata, handle_slash
+from scrapydweb.common import find_scrapydweb_settings_py, handle_metadata, handle_slash
 from scrapydweb.vars import ROOT_DIR, SCRAPYDWEB_SETTINGS_PY, SCHEDULER_STATE_DICT, STATE_PAUSED, STATE_RUNNING
 from scrapydweb.utils.check_app_config import check_app_config
 
@@ -47,77 +46,21 @@ def main():
         sys.exit(u"\n{err}\n\nCheck and update your settings in {path}\n".format(
                  err=err, path=handle_slash(app.config['SCRAPYDWEB_SETTINGS_PY_PATH'])))
 
-    # https://stackoverflow.com/questions/34164464/flask-decorate-every-route-at-once
-    @app.before_request
-    def require_login():
-        if app.config.get('ENABLE_AUTH', False):
-            auth = request.authorization
-            USERNAME = str(app.config.get('USERNAME', ''))  # May be 0 from config file
-            PASSWORD = str(app.config.get('PASSWORD', ''))
-            if not auth or not (auth.username == USERNAME and auth.password == PASSWORD):
-                return authenticate()
-
-    # MUST be commented out for released version
-    # https://stackoverflow.com/questions/34066804/disabling-caching-in-flask
-    # @app.after_request
-    # def add_header(r):
-        # r.headers['Pragma'] = 'no-cache'
-        # r.headers['Expires'] = '0'
-        # r.headers['Cache-Control'] = 'public, max-age=0'
-        # return r
-
-    @app.context_processor
-    def inject_variable():
-        SCRAPYD_SERVERS = app.config.get('SCRAPYD_SERVERS', []) or ['127.0.0.1:6800']
-        SCRAPYD_SERVERS_PUBLIC_URLS = app.config.get('SCRAPYD_SERVERS_PUBLIC_URLS', None)
-        return dict(
-            SCRAPYD_SERVERS=SCRAPYD_SERVERS,
-            SCRAPYD_SERVERS_AMOUNT=len(SCRAPYD_SERVERS),
-            SCRAPYD_SERVERS_GROUPS=app.config.get('SCRAPYD_SERVERS_GROUPS', []) or [''],
-            SCRAPYD_SERVERS_AUTHS=app.config.get('SCRAPYD_SERVERS_AUTHS', []) or [None],
-            SCRAPYD_SERVERS_PUBLIC_URLS=SCRAPYD_SERVERS_PUBLIC_URLS or [''] * len(SCRAPYD_SERVERS),
-
-            DAEMONSTATUS_REFRESH_INTERVAL=app.config.get('DAEMONSTATUS_REFRESH_INTERVAL', 10),
-            ENABLE_AUTH=app.config.get('ENABLE_AUTH', False),
-            SHOW_SCRAPYD_ITEMS=app.config.get('SHOW_SCRAPYD_ITEMS', True),
-        )
-
-    # To solve https://github.com/my8100/scrapydweb/issues/17
-    # http://flask.pocoo.org/docs/1.0/cli/?highlight=flask_debug#environments
-    # flask/helpers.py: get_env() The default is 'production'
-    # On Windows, get/set/delete: set FLASK_ENV, set FLASK_ENV=production, set set FLASK_ENV=
-    # if not os.environ.get('FLASK_ENV'):
-        # os.environ['FLASK_ENV'] = 'development'
-        # print("The environment variable 'FLASK_ENV' has been set to 'development'")
-        # print("WARNING: Do not use the development server in a production. "
-               # "Check out http://flask.pocoo.org/docs/1.0/deploying/")
-
-    # http://flask.pocoo.org/docs/1.0/config/?highlight=flask_debug#environment-and-debug-features
-    if app.config.get('DEBUG', False):
-        os.environ['FLASK_DEBUG'] = '1'
-        logger.info("Note that use_reloader is set to False in run.py")
-    else:
-        os.environ['FLASK_DEBUG'] = '0'
-
-    # site-packages/flask/app.py
-    # Threaded mode is enabled by default.
-    # https://stackoverflow.com/a/28590266/10517783 to run in HTTP or HTTPS mode
-    # site-packages/werkzeug/serving.py
-    # https://stackoverflow.com/questions/13895176/sqlalchemy-and-sqlite-database-is-locked
+    # Basic auth is handled by an ASGI middleware in create_app() (reads settings per request).
     if app.config.get('ENABLE_HTTPS', False):
         protocol = 'https'
-        context = (app.config['CERTIFICATE_FILEPATH'], app.config['PRIVATEKEY_FILEPATH'])
+        ssl_kwargs = dict(ssl_certfile=app.config['CERTIFICATE_FILEPATH'],
+                          ssl_keyfile=app.config['PRIVATEKEY_FILEPATH'])
     else:
         protocol = 'http'
-        context = None
+        ssl_kwargs = {}
 
     print("{star}Visit ScrapydWeb at {protocol}://127.0.0.1:{port} "
           "or {protocol}://IP-OF-THE-CURRENT-HOST:{port}{star}\n".format(
            star=STAR, protocol=protocol, port=app.config['SCRAPYDWEB_PORT']))
-    logger.info("For running Flask in production, check out http://flask.pocoo.org/docs/1.0/deploying/")
     apscheduler_logger.setLevel(logging.DEBUG)
-    app.run(host=app.config['SCRAPYDWEB_BIND'], port=app.config['SCRAPYDWEB_PORT'],
-            ssl_context=context, use_reloader=False)
+    uvicorn.run(app, host=app.config['SCRAPYDWEB_BIND'], port=int(app.config['SCRAPYDWEB_PORT']),
+                **ssl_kwargs)
 
 
 def load_custom_settings(config):
