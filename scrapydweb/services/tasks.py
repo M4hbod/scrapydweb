@@ -105,12 +105,12 @@ class TaskExecutor:
             assert status_code == 200 and js.get('status') == 'ok', "Request got %s" % js
         except Exception as err:
             if node not in self.nodes_to_retry:
-                apscheduler_logger.warning("Fail to execute task #%s on node %s, would retry later: %s",
-                                           self.task_id, node, err)
+                apscheduler_logger.warning("Fail to execute task #%s (%s) on node %s, would retry later: %s",
+                                           self.task_id, self.task_name, node, err)
                 self.nodes_to_retry.append(node)
                 return {}
-            apscheduler_logger.error("Fail to execute task #%s on node %s, no more retries: %s",
-                                     self.task_id, node, traceback.format_exc())
+            apscheduler_logger.error("Fail to execute task #%s (%s) on node %s, no more retries: %s",
+                                     self.task_id, self.task_name, node, traceback.format_exc())
             js.setdefault('url', url)
             js.setdefault('status_code', -1)
             js.setdefault('status', 'error')
