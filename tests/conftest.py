@@ -1,9 +1,12 @@
 # coding: utf-8
 import os
+from contextlib import nullcontext
 
 import pytest
+from starlette.testclient import TestClient
 
 from scrapydweb import create_app
+from tests import utils
 from tests.utils import cst, setup_env
 
 
@@ -91,8 +94,7 @@ def app():
 
     app = create_app(config)
 
-    @app.context_processor
-    def inject_variable():
+    def inject_variable(request=None):
         SCRAPYD_SERVERS = app.config.get('SCRAPYD_SERVERS', []) or ['127.0.0.1:6800']
         return dict(
             SCRAPYD_SERVERS=SCRAPYD_SERVERS,
@@ -105,17 +107,19 @@ def app():
             ENABLE_AUTH=app.config.get('ENABLE_AUTH', False),
             SHOW_SCRAPYD_ITEMS=app.config.get('SHOW_SCRAPYD_ITEMS', True),
         )
+    app.state.context_processors.append(inject_variable)
+
+    # Let helpers call url_for(view, **kws) without a request context (see tests/utils.py),
+    # and keep `with app.test_request_context():` working as a no-op in legacy test bodies.
+    utils.set_app(app)
+    app.test_request_context = lambda *a, **k: nullcontext()
 
     yield app
 
 
-# https://stackoverflow.com/questions/41065584/using-url-for-in-tests
-# TODO: follow_redirects=True
 @pytest.fixture
 def client(app):
-    return app.test_client()
-
-
-@pytest.fixture
-def runner(app):
-    return app.test_cli_runner()
+    # Starlette's sync TestClient drives the async ASGI app and runs lifespan
+    # (DB init) on context entry. follow_redirects=False matches Flask's test client.
+    with TestClient(app, follow_redirects=False) as test_client:
+        yield test_client

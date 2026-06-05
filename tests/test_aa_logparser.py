@@ -3,7 +3,7 @@ import io
 import json
 import os
 
-from flask import url_for
+from tests.utils import url_for
 
 from scrapydweb.utils.check_app_config import check_app_config
 from scrapydweb.views.files.log import REPORT_KEYS_SET

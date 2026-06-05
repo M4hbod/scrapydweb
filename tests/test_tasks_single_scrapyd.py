@@ -4,7 +4,7 @@ REF: test_schedule_single_scrapyd.py
 """
 import re
 
-from flask import url_for
+from tests.utils import url_for
 from six.moves.urllib.parse import unquote_plus
 from tzlocal import get_localzone
 

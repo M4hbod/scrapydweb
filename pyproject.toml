@@ -7,37 +7,31 @@ name = "scrapydweb"
 dynamic = ["version"]
 description = "Web app for Scrapyd cluster management, with support for Scrapy log analysis & visualization."
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.9"
 license = { text = "GNU General Public License v3.0" }
 authors = [{ name = "my8100", email = "my8100@gmail.com" }]
 dependencies = [
-    "APScheduler==3.6.0",       # Mar 18, 2019
-    "click==7.1.2",             # Apr 28, 2020
-    "colorama==0.4.0",          # Oct 10, 2018
-    "Flask==2.0.0",             # May 12, 2021
-    "Flask-Compress==1.4.0",    # Jan 5, 2017
-    "Flask-SQLAlchemy==2.4.0",  # Apr 25, 2019
-    "idna==2.7",                # Jun 11, 2018
-    "itsdangerous==2.0.0",      # May 12, 2021
-    "Jinja2==3.0.0",            # May 12, 2021
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.19",
+    "APScheduler>=3.10,<4",
     "logparser>=0.8.4",
-    "MarkupSafe==2.0.0",        # May 12, 2021
-    "pexpect==4.7.0",           # Apr 7, 2019
-    "ptyprocess==0.6.0",        # Jun 22, 2018
-    "pytz==2018.9",             # Jan 7, 2019
-    "requests>=2.21.0",         # Dec 10, 2018
-    "setuptools>=40.6.3,<81",   # <81 keeps pkg_resources for APScheduler 3.6.0
-    "six==1.16.0",              # May 5, 2021
-    "SQLAlchemy==1.3.24",       # Mar 31, 2021
-    "tzlocal==1.5.1",           # Dec 1, 2017
-    "w3lib==2.0.0",             # Aug 11, 2022
-    "Werkzeug==2.0.0",          # May 12, 2021
+    "tzlocal>=4",
+    "w3lib>=2.0",
+    "werkzeug>=2.0",          # secure_filename / user-agent helpers only
+    "click>=7.1.2",
+    "colorama>=0.4",
+    "pexpect>=4.7",
+    "ptyprocess>=0.6",
+    "pytz>=2018.9",
+    "six>=1.16",
 ]
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -58,9 +52,11 @@ scrapydweb = "scrapydweb.run:main"
 [dependency-groups]
 test = [
     "pytest",
+    "pytest-asyncio>=0.23",
     "scrapy<2.13",
     "scrapyd",
     "Twisted<25",
+    "setuptools<81",  # scrapyd's runner.py imports pkg_resources (gone in setuptools>=81)
 ]
 
 [tool.uv]
