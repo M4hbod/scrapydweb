@@ -11,7 +11,8 @@ from subprocess import check_call
 import sys
 import tempfile
 
-from flask import current_app as app
+import logging as _logging
+_logger = _logging.getLogger(__name__)
 try:
     from six.moves.configparser import SafeConfigParser
 except ImportError:
@@ -84,6 +85,6 @@ def _build_egg(scrapy_cfg_path):
 def _create_default_setup_py(**kwargs):
     with open('setup.py', 'w') as f:
         content = _SETUP_PY_TEMPLATE % kwargs
-        app.logger.debug('New setup.py')
+        _logger.debug('New setup.py')
         # app.logger.debug(content)
         f.write(content)
