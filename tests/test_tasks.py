@@ -79,7 +79,7 @@ def test_check_result(app, client):
         ins=["node: 1,", "server: '%s'," % app.config['SCRAPYD_SERVERS'][0],
              "status_code: 200,", "status: 'ok',"])  # , ":total='1'"
 
-    sleep(20)
+    sleep(10)  # wait for the task execution (~4s: schedule + one 3s retry) to finish
     # The first execution has finished
     req(app, client, view='tasks', kws=dict(node=NODE),
         ins=["id: %s," % task_id, "prev_run_result: 'FAIL 1, PASS 1',", "fail_times: 1,", "run_times: 'FAIL 1 / 1',"])
@@ -158,7 +158,7 @@ def test_switch_template(app, client):
         ins=['label="Fail count"', "pass_count: 0,", "fail_count: 0,", "pass_count: 1,", ":total='2'"],
         nos=['label="Server"', "status_code:", "status:"])
 
-    sleep(28)
+    sleep(12)  # wait for the task execution (~4s: schedule + one 3s retry) to finish
     req(app, client, view='tasks', kws=dict(node=NODE),
         ins=["id: %s," % task_id, "prev_run_result: 'FAIL 1, PASS 0',", "run_times: 'FAIL 1 / 2',"])
     req(app, client, view='tasks', kws=dict(node=NODE, task_id=task_id),
@@ -359,7 +359,7 @@ def test_delete_task_or_task_result_on_the_fly(app, client):
                      kws=dict(node=NODE, action='list', task_id=task_id, task_result_id=task_result_id))
         assert len(js['ids']) == 0
 
-        sleep(28)
+        sleep(12)  # wait for the in-flight task execution (~4s) to finish
         req(app, client, view='tasks.xhr',
             kws=dict(node=NODE, action='delete', task_id=task_id, task_result_id=task_result_id))
         __, js = req(app, client, view='tasks.xhr', kws=dict(node=NODE, action='list', task_id=task_id))

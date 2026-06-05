@@ -211,7 +211,11 @@ def switch_scrapyd(app):
         app.config['SCRAPYD_SERVERS_AUTHS'] = app.config['SCRAPYD_SERVERS_AUTHS'][::-1]
 
 
-def sleep(seconds=10):
+def sleep(seconds=4):
+    # The no-arg sleep() waits for a spider job to reach a state; the demo spider's
+    # DOWNLOAD_DELAY was lowered, so 4s is enough. Override via TEST_SLEEP if needed.
+    # Explicit sleep(N) calls (cron-aligned task tests) pass their own N and are left as-is.
+    seconds = int(os.environ.get('TEST_SLEEP', seconds)) if seconds == 4 else seconds
     print(time.ctime(), "Sleep %ss" % seconds)
     time.sleep(seconds)
 
