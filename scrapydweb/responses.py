@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 def redirect(url, status_code=302):
     body = ('<!DOCTYPE HTML><html><head><title>Redirecting...</title></head>'
-            '<body><p>You should be redirected automatically to target URL: '
+            '<body><h1>Redirecting...</h1><p>You should be redirected automatically to target URL: '
             '<a href="%s">%s</a></p></body></html>') % (url, url)
     return Response(content=body, status_code=status_code,
                     headers={'Location': url}, media_type='text/html')

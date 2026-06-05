@@ -66,6 +66,12 @@ async def deploy(request: Request, node: int, ctx: NodeContext = Depends(get_nod
     from ..vars import DEMO_PROJECTS_PATH
     projects_dir = app.state.settings.get('SCRAPY_PROJECTS_DIR', '') or DEMO_PROJECTS_PATH
 
+    if request.method == 'POST':
+        form = await request.form()
+        selected_nodes = [n for n in range(1, ctx.SCRAPYD_SERVERS_AMOUNT + 1) if form.get(str(n)) == 'on']
+    else:
+        selected_nodes = []
+
     cfg_list = sorted(glob.glob(os.path.join(projects_dir, '*', 'scrapy.cfg')), key=lambda x: x.lower())
     project_paths = [os.path.dirname(i) for i in cfg_list]
     folders = [os.path.basename(i) for i in project_paths]
@@ -89,7 +95,7 @@ async def deploy(request: Request, node: int, ctx: NodeContext = Depends(get_nod
 
     page = dict(
         node=node, url='http://%s/addversion.json' % ctx.SCRAPYD_SERVER,
-        url_projects=u(app, 'projects', node=node), selected_nodes=[],
+        url_projects=u(app, "projects", node=node), selected_nodes=selected_nodes,
         folders=folders, projects=projects, modification_times=modification_times,
         latest_folder=latest_folder, SCRAPY_PROJECTS_DIR=projects_dir.replace('\\', '/'),
         url_servers=u(app, 'servers', node=node, opt='deploy'),
@@ -278,7 +284,7 @@ async def deploy_xhr(request: Request, node: int, eggname: str, project: str, ve
     return JSONResponse(js)
 
 
-router.add_api_route('/{node:int}/deploy/', deploy, methods=['GET'], name='deploy')
+router.add_api_route('/{node:int}/deploy/', deploy, methods=['GET', 'POST'], name='deploy')
 router.add_api_route('/{node:int}/deploy/upload/', deploy_upload, methods=['POST'], name='deploy.upload')
 router.add_api_route('/{node:int}/deploy/xhr/{eggname}/{project}/{version}/', deploy_xhr,
                      methods=['GET', 'POST'], name='deploy.xhr')
