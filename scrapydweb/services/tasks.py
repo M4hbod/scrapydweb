@@ -1,24 +1,24 @@
 # coding: utf-8
-"""Async timer-task executor (ports views/operations/execute_task.py).
+"""Synchronous timer-task executor (ports views/operations/execute_task.py).
 
-Registered as the AsyncIOScheduler job func. For each selected node it posts the
-task's spider settings to that node's Scrapyd schedule.json directly (httpx),
-with one retry round, and records TaskResult / TaskJobResult rows.
+Runs in the BackgroundScheduler thread (no asyncio loop). For each selected node
+it posts the task's spider settings to that node's Scrapyd schedule.json (sync
+requests), with one retry round, and records TaskResult / TaskJobResult rows via
+a sync session.
 """
-import asyncio
 import json
 import logging
 import re
+import time
 import traceback
 
 from sqlalchemy import select
 
-from ..common import get_now_string
+from ..common import get_now_string, session
 from ..context import DEFAULT_LATEST_VERSION
-from ..db import SessionLocal
+from ..db_sync import SyncSessionLocal
 from ..models import Task, TaskJobResult, TaskResult
 from ..scheduler import scheduler
-from .scrapyd import request_scrapyd
 
 apscheduler_logger = logging.getLogger('apscheduler')
 EXTRACT_URL_SERVER_PATTERN = re.compile(r'//(.+?:\d+)')
@@ -31,69 +31,77 @@ def set_app(app):
     _app = app
 
 
+def _settings():
+    return _app.state.settings if _app is not None else {}
+
+
+def _request_scrapyd_sync(url, data, auth):
+    try:
+        r = session.post(url, data=data, auth=tuple(auth) if auth else None, timeout=60)
+    except Exception as err:
+        return -1, dict(url=url, status_code=-1, status='error', message=str(err), when=get_now_string(True))
+    try:
+        js = r.json()
+    except ValueError:
+        js = dict(status='error', message=r.text)
+    js.update(url=url, status_code=r.status_code, when=get_now_string(True))
+    js.setdefault('status', 'N/A')
+    return r.status_code, js
+
+
 class TaskExecutor:
-    def __init__(self, app, task_id, task_name, project, version, spider, settings_arguments, selected_nodes):
-        self.app = app
+    def __init__(self, task_id, task_name, project, version, spider, settings_arguments, selected_nodes):
+        s = _settings()
+        self.servers = s.get('SCRAPYD_SERVERS', []) or ['127.0.0.1:6800']
+        self.auths = s.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
         self.task_id = task_id
         self.task_name = task_name
-        self.project = project
-        self.version = version
-        self.spider = spider
-        self.settings_arguments = settings_arguments
-        self.selected_nodes = selected_nodes
-        self.data = dict(self.settings_arguments)
+        self.data = dict(settings_arguments)
         self.data['project'] = project
         if version != DEFAULT_LATEST_VERSION:
             self.data['_version'] = version
         self.data['spider'] = spider
         self.data['jobid'] = 'task_%s_%s' % (task_id, get_now_string())
+        self.selected_nodes = selected_nodes
         self.task_result_id = None
         self.pass_count = 0
         self.fail_count = 0
         self.sleep_seconds_before_retry = 3
         self.nodes_to_retry = []
-        self.logger = logging.getLogger(self.__class__.__name__)
 
-    @property
-    def servers(self):
-        return self.app.state.settings.get('SCRAPYD_SERVERS', []) or ['127.0.0.1:6800']
-
-    @property
-    def auths(self):
-        return self.app.state.settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
-
-    async def main(self):
-        await self._create_task_result()
+    def main(self):
+        with SyncSessionLocal() as s:
+            tr = TaskResult(task_id=self.task_id)
+            s.add(tr)
+            s.commit()
+            self.task_result_id = tr.id
         for index, nodes in enumerate([self.selected_nodes, self.nodes_to_retry]):
             if not nodes:
                 continue
             if index == 1:
-                await asyncio.sleep(self.sleep_seconds_before_retry)
+                time.sleep(self.sleep_seconds_before_retry)
             for node in list(nodes):
-                result = await self._schedule(node)
+                result = self._schedule(node)
                 if result:
                     if result['status'] == 'ok':
                         self.pass_count += 1
                     else:
                         self.fail_count += 1
-                    await self._insert_job_result(result)
-        await self._update_task_result()
+                    self._insert_job_result(result)
+        with SyncSessionLocal() as s:
+            tr = s.execute(select(TaskResult).filter_by(id=self.task_result_id)).scalar_one_or_none()
+            if tr:
+                tr.fail_count = self.fail_count
+                tr.pass_count = self.pass_count
+                s.commit()
 
-    async def _create_task_result(self):
-        async with SessionLocal() as session:
-            tr = TaskResult(task_id=self.task_id)
-            session.add(tr)
-            await session.commit()
-            self.task_result_id = tr.id
-
-    async def _schedule(self, node):
+    def _schedule(self, node):
         server = self.servers[node - 1]
         auth = self.auths[node - 1]
         url = 'http://%s/schedule.json' % server
         js = {}
         try:
-            status_code, js = await request_scrapyd(self.app.state.http_client, url, data=self.data,
-                                                    auth=auth, as_json=True)
+            status_code, js = _request_scrapyd_sync(url, self.data, auth)
             assert status_code == 200 and js.get('status') == 'ok', "Request got %s" % js
         except Exception as err:
             if node not in self.nodes_to_retry:
@@ -109,46 +117,32 @@ class TaskExecutor:
         js.update(node=node)
         return js
 
-    async def _insert_job_result(self, js):
-        async with SessionLocal() as session:
-            tr = (await session.execute(select(TaskResult).filter_by(id=self.task_result_id))).scalar_one_or_none()
-            if not tr:
+    def _insert_job_result(self, js):
+        with SyncSessionLocal() as s:
+            if not s.execute(select(TaskResult).filter_by(id=self.task_result_id)).scalar_one_or_none():
                 return
             m = re.search(EXTRACT_URL_SERVER_PATTERN, js.get('url', ''))
-            tjr = TaskJobResult(
+            s.add(TaskJobResult(
                 task_result_id=self.task_result_id, node=js['node'],
                 server=m.group(1) if m else self.servers[js['node'] - 1],
                 status_code=js['status_code'], status=js['status'],
-                result=js.get('jobid', '') or js.get('message', '') or js.get('exception', ''))
-            session.add(tjr)
-            await session.commit()
-
-    async def _update_task_result(self):
-        async with SessionLocal() as session:
-            tr = (await session.execute(select(TaskResult).filter_by(id=self.task_result_id))).scalar_one_or_none()
-            if tr:
-                tr.fail_count = self.fail_count
-                tr.pass_count = self.pass_count
-                await session.commit()
+                result=js.get('jobid', '') or js.get('message', '') or js.get('exception', '')))
+            s.commit()
 
 
-async def execute_task(task_id):
-    if _app is None:
-        apscheduler_logger.error("execute_task: app not set")
-        return
-    async with SessionLocal() as session:
-        task = (await session.execute(select(Task).filter_by(id=task_id))).scalar_one_or_none()
+def execute_task(task_id):
+    with SyncSessionLocal() as s:
+        task = s.execute(select(Task).filter_by(id=task_id)).scalar_one_or_none()
     if not task:
         job = scheduler.get_job(str(task_id))
         if job:
             job.remove()
         apscheduler_logger.error("apscheduler_job #%s removed since task not exist.", task_id)
         return
-    executor = TaskExecutor(
-        _app, task_id=task_id, task_name=task.name, project=task.project, version=task.version,
-        spider=task.spider, settings_arguments=json.loads(task.settings_arguments),
-        selected_nodes=json.loads(task.selected_nodes))
+    executor = TaskExecutor(task_id=task_id, task_name=task.name, project=task.project, version=task.version,
+                            spider=task.spider, settings_arguments=json.loads(task.settings_arguments),
+                            selected_nodes=json.loads(task.selected_nodes))
     try:
-        await executor.main()
+        executor.main()
     except Exception:
         apscheduler_logger.error(traceback.format_exc())
