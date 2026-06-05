@@ -68,6 +68,10 @@ def start_logparser(config):
         '--main_pid',
         str(config['MAIN_PID']),
     ]
+    # Optional: shorten LogParser's parse-round interval (default 10s) for faster feedback.
+    parse_round_interval = config.get('LOGPARSER_PARSE_ROUND_INTERVAL')
+    if parse_round_interval is not None:
+        args += ['-t', str(parse_round_interval)]
 
     if platform.system() == 'Linux':
         kwargs = dict(preexec_fn=on_parent_exit('SIGKILL'))  # 'SIGTERM' 'SIGKILL'

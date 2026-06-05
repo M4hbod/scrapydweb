@@ -838,7 +838,7 @@ def test_execute_task_fail(app, client):
         url_delete = url_for('tasks.xhr', node=NODE, action='delete', task_id=task_id)
     task_result_id = int(re.search(r'%s(\d+)/' % url_delete, text).group(1))
     print("task_result_id: %s" % task_result_id)
-    sleep(28)
+    sleep(12)  # wait for the task execution (~4s: schedule + one 3s retry) to finish
     req_single_scrapyd(app, client, view='tasks', kws=dict(node=NODE),
                        ins=["id: %s," % task_id, "prev_run_result: 'FAIL 1, PASS 0',"])
     req_single_scrapyd(app, client, view='tasks', kws=dict(node=NODE, task_id=task_id),
