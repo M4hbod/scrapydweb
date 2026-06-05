@@ -9,9 +9,10 @@ import logging
 from pprint import pformat
 
 from apscheduler.events import EVENT_JOB_MAX_INSTANCES, EVENT_JOB_REMOVED
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_PAUSED, STATE_RUNNING, STATE_STOPPED
 
 from .vars import APSCHEDULER_DATABASE_URI, TIMER_TASKS_HISTORY_LOG
@@ -28,9 +29,12 @@ jobstores = {
     'default': SQLAlchemyJobStore(url=APSCHEDULER_DATABASE_URI),
     'memory': MemoryJobStore(),
 }
+executors = {'default': ThreadPoolExecutor(20)}
 job_defaults = {'coalesce': True, 'max_instances': 1}
 
-scheduler = AsyncIOScheduler(jobstores=jobstores, job_defaults=job_defaults)
+# Thread-based: independent of the web app's asyncio loop, so timer jobs persist
+# and fire across test client lifecycles (execute_task is a sync function).
+scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults)
 
 
 def _my_listener(event):
