@@ -25,8 +25,8 @@ from ..common import get_now_string, json_dumps
 from ..templating import render
 from ..urls import safe_url_for as u, url_for
 from ..vars import DEPLOY_PATH, LEGAL_NAME_PATTERN, STRICT_NAME_PATTERN
-from ..views.operations.scrapyd_deploy import _build_egg, get_config
-from ..views.operations.utils import mkdir_p, slot
+from ..services.scrapyd_deploy import _build_egg, get_config
+from ..services.deploy_utils import mkdir_p, slot
 
 router = APIRouter()
 OK = 'ok'
