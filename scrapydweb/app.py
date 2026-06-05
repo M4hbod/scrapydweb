@@ -56,11 +56,21 @@ def create_app(test_config=None):
     settings = build_settings(test_config)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    # DB URIs live in vars (module constants); expose on settings for the settings page / tests.
+    from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
+    settings.setdefault('SQLALCHEMY_DATABASE_URI', SQLALCHEMY_DATABASE_URI)
+    settings.setdefault('SQLALCHEMY_BINDS', SQLALCHEMY_BINDS)
+
     app.state.settings = settings
     app.state.context_processors = []
     # Convenience aliases (mirror the old Flask app surface used by tests/helpers).
     app.config = settings  # same mutable mapping the deps read
     app.testing = bool(settings.get('TESTING'))
+
+    def context_processor(func):
+        app.state.context_processors.append(func)
+        return func
+    app.context_processor = context_processor
 
     app.add_middleware(GZipMiddleware, minimum_size=500)
 

@@ -47,8 +47,8 @@ def url_for(app, name, **values):
 
 
 def safe_url_for(app, name, **values):
-    """Tolerant url_for for in-page links to routes not yet ported (-> '#')."""
+    """Tolerant url_for for in-page links (unported routes / empty params -> '#')."""
     try:
         return url_for(app, name, **values)
-    except NoMatchFound:
+    except (NoMatchFound, AssertionError, ValueError, KeyError):
         return '#'

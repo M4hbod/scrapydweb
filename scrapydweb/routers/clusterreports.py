@@ -1,7 +1,7 @@
 # coding: utf-8
 """Cluster reports (ports views/dashboard/cluster_reports.py)."""
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
+from ..responses import redirect as _redirect
 
 from ..context import NodeContext, get_node_context
 from ..templating import render
@@ -28,11 +28,11 @@ async def clusterreports(request: Request, node: int, project: str = None, spide
 
     if all([project, spider, job]):
         if not any(raw):
-            return RedirectResponse(url_for(app, 'clusterreports', node=node, project=project,
-                                            spider=spider, job=job), status_code=302)
+            return _redirect(url_for(app, 'clusterreports', node=node, project=project,
+                                     spider=spider, job=job))
         if not selected:
-            return RedirectResponse(u(app, 'servers', node=node, opt='getreports', project=project,
-                                      spider=spider, version_job=job), status_code=302)
+            return _redirect(u(app, 'servers', node=node, opt='getreports', project=project,
+                               spider=spider, version_job=job))
     url_servers = '' if not any([project, spider, job]) else u(
         app, 'servers', node=node, opt='getreports', project=project, spider=spider, version_job=job)
     page = dict(

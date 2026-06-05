@@ -331,6 +331,12 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
                 nrt=job_instance.next_run_time or NA)
             add_task_flash = msg + postfix
             apscheduler_logger.warning(msg)  # written to TIMER_TASKS_HISTORY_LOG by the file handler
+            job_instance_dict = dict(
+                id=job_instance.id, name=job_instance.name, kwargs=job_instance.kwargs,
+                misfire_grace_time=job_instance.misfire_grace_time, max_instances=job_instance.max_instances,
+                trigger=repr(job_instance.trigger), next_run_time=repr(job_instance.next_run_time))
+            apscheduler_logger.warning("%s job_instance: \n%s", "Updated" if to_update else 'Added',
+                                       json_dumps(job_instance_dict))
         add_task_message = add_task_flash or add_task_error
     else:
         status_code, js = await request_scrapyd(app.state.http_client, url, data=data, auth=auth, as_json=True)
