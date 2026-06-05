@@ -16,7 +16,8 @@ import zipfile
 from configparser import Error as ScrapyCfgParseError
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
+from ..responses import redirect as _redirect
 from werkzeug.utils import secure_filename
 
 from ..context import NodeContext, get_node_context
@@ -252,8 +253,7 @@ async def deploy_upload(request: Request, node: int, ctx: NodeContext = Depends(
                       page=dict(node=node, alert=alert, text=json_dumps(js), message=message))
 
     if selected_amount == 0:
-        return RedirectResponse(url_for(app, 'schedule', node=node, project=project, version=version),
-                                status_code=302)
+        return _redirect(url_for(app, 'schedule', node=node, project=project, version=version))
     page = dict(
         node=node, selected_nodes=selected_nodes, first_selected_node=first, js=js,
         project=project, version=version,

@@ -5,7 +5,7 @@ import os
 import re
 
 from ..common import handle_metadata, handle_slash, json_dumps, session
-from ..models import create_jobs_table, db
+from ..models import Base, create_jobs_table
 from ..utils.scheduler import scheduler
 from ..utils.setup_database import test_database_url_pattern
 from ..vars import (ALLOWED_SCRAPYD_LOG_EXTENSIONS, ALERT_TRIGGER_KEYS,
@@ -111,7 +111,12 @@ def check_app_config(config):
         # Note that check_app_config() is executed multiple times in test
         if node not in jobs_table_map:
             jobs_table_map[node] = create_jobs_table(re.sub(STRICT_NAME_PATTERN, '_', scrapyd_server))
-    db.create_all(bind='jobs')
+    from sqlalchemy import create_engine as _ce
+    from ..vars import SQLALCHEMY_BINDS as _BINDS
+    _eng = _ce(_BINDS['jobs'])
+    Base.metadata.create_all(_eng, tables=[m.local_table for m in Base.registry.mappers
+                                           if getattr(m.class_, '__bind_key__', None) == 'jobs'])
+    _eng.dispose()
     logger.debug("Created %s tables for JobsView", len(jobs_table_map))
 
     check_assert('LOCAL_SCRAPYD_LOGS_DIR', '', str)
