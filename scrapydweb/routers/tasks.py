@@ -157,7 +157,7 @@ async def _task_results(request, node, ctx, session, task, task_id, page, per_pa
     total = (await session.execute(select(func.count()).select_from(TaskResult).filter_by(task_id=task_id))).scalar()
     rows = (await session.execute(select(TaskResult).filter_by(task_id=task_id).order_by(TaskResult.id.desc())
             .limit(per_page).offset((page - 1) * per_page))).scalars().all()
-    with_job = all((tr.fail_count + tr.pass_count) == 1 for tr in rows)
+    with_job = bool(rows) and all((tr.fail_count + tr.pass_count) == 1 for tr in rows)
     template = 'scrapydweb/task_results_with_job.html' if with_job else 'scrapydweb/task_results.html'
     for index, tr in enumerate(rows, (page - 1) * per_page + 1):
         tr.index = index
@@ -256,6 +256,7 @@ async def _xhr_dispatch(request, node, action, task_id, task_result_id, js):
                 if task:
                     await session.delete(task)
                     await session.commit()
+                    apscheduler_logger.warning("Task #%s deleted. ", task_id)
                     js['tip'] = js.get('tip', '') + "Task #%s deleted. " % task_id
                 else:
                     js['status'] = ERROR

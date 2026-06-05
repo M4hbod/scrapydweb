@@ -301,42 +301,44 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
             task.update_time = datetime.now()
             if not to_update:
                 session.add(task)
-            await session.commit()
+            await session.flush()  # assign id without committing (commit only if add_job succeeds)
             task_id = task.id
 
-        kwargs = dict(task_id=task_id)
-        task_data['id'] = str(task_id)
-        task_data['name'] = task_data['name'] or 'task_%s' % task_id
-        postfix = "Click the Running button to pause it. "
-        if action == 'add_fire':
-            if not to_update:
-                task_data['next_run_time'] = datetime.now()
-            postfix = "Reload this page several seconds later to check out the execution result. "
-        elif action == 'add_pause':
-            task_data['next_run_time'] = None
-            postfix = "Click the Paused button to resume it. "
-        try:
-            job_instance = scheduler.add_job(func=execute_task, args=None, kwargs=kwargs,
-                                             replace_existing=True, **task_data)
-        except Exception as err:
-            add_task_result = False
-            add_task_error = str(err)
-            apscheduler_logger.error(traceback.format_exc())
-        else:
-            if to_update and action == 'add_fire':
-                job_instance.modify(next_run_time=datetime.now())
-            add_task_result = True
-            msg = u"{target} task #{task_id} ({task_name}) successfully, next run at {nrt}. ".format(
-                target="Update" if to_update else 'Add', task_id=task_id, task_name=task_data['name'],
-                nrt=job_instance.next_run_time or NA)
-            add_task_flash = msg + postfix
-            apscheduler_logger.warning(msg)  # written to TIMER_TASKS_HISTORY_LOG by the file handler
-            job_instance_dict = dict(
-                id=job_instance.id, name=job_instance.name, kwargs=job_instance.kwargs,
-                misfire_grace_time=job_instance.misfire_grace_time, max_instances=job_instance.max_instances,
-                trigger=repr(job_instance.trigger), next_run_time=repr(job_instance.next_run_time))
-            apscheduler_logger.warning("%s job_instance: \n%s", "Updated" if to_update else 'Added',
-                                       json_dumps(job_instance_dict))
+            kwargs = dict(task_id=task_id)
+            task_data['id'] = str(task_id)
+            task_data['name'] = task_data['name'] or 'task_%s' % task_id
+            postfix = "Click the Running button to pause it. "
+            if action == 'add_fire':
+                if not to_update:
+                    task_data['next_run_time'] = datetime.now()
+                postfix = "Reload this page several seconds later to check out the execution result. "
+            elif action == 'add_pause':
+                task_data['next_run_time'] = None
+                postfix = "Click the Paused button to resume it. "
+            try:
+                job_instance = scheduler.add_job(func=execute_task, args=None, kwargs=kwargs,
+                                                 replace_existing=True, **task_data)
+            except Exception as err:
+                await session.rollback()  # do not persist the task if the apscheduler job is invalid
+                add_task_result = False
+                add_task_error = str(err)
+                apscheduler_logger.error(traceback.format_exc())
+            else:
+                await session.commit()
+                if to_update and action == 'add_fire':
+                    job_instance.modify(next_run_time=datetime.now())
+                add_task_result = True
+                msg = u"{target} task #{task_id} ({task_name}) successfully, next run at {nrt}. ".format(
+                    target="Update" if to_update else 'Add', task_id=task_id, task_name=task_data['name'],
+                    nrt=job_instance.next_run_time or NA)
+                add_task_flash = msg + postfix
+                apscheduler_logger.warning(msg)  # written to TIMER_TASKS_HISTORY_LOG by the file handler
+                job_instance_dict = dict(
+                    id=job_instance.id, name=job_instance.name, kwargs=job_instance.kwargs,
+                    misfire_grace_time=job_instance.misfire_grace_time, max_instances=job_instance.max_instances,
+                    trigger=repr(job_instance.trigger), next_run_time=repr(job_instance.next_run_time))
+                apscheduler_logger.warning("%s job_instance: \n%s", "Updated" if to_update else 'Added',
+                                           json_dumps(job_instance_dict))
         add_task_message = add_task_flash or add_task_error
     else:
         status_code, js = await request_scrapyd(app.state.http_client, url, data=data, auth=auth, as_json=True)
@@ -360,7 +362,9 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
             return _redirect(url_for(app, 'tasks', node=node, flash=add_task_flash))
         return render(request, _fail(ctx), node, ctx, page=dict(
             node=node, alert="Fail to add/edit task with error:", text=add_task_error,
-            tip="Re-edit the task. ", message=add_task_message))
+            tip=("Check out the HELP section in the Run Spider page, and then "
+                 "go back to the Timer Tasks page to re-edit task #%s. ") % task_id,
+            message=add_task_message))
     if js.get('status') == OK:
         if not selected_amount:
             return _redirect(url_for(app, 'jobs', node=node))

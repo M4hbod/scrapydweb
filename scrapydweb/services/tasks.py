@@ -96,6 +96,16 @@ class TaskExecutor:
                 s.commit()
 
     def _schedule(self, node):
+        if not (0 < node <= len(self.servers)):
+            # The task may have been created with more nodes than are configured now.
+            if node not in self.nodes_to_retry:
+                self.nodes_to_retry.append(node)
+                return {}
+            msg = 'node index error: %s, which should be between 1 and %s' % (node, len(self.servers))
+            apscheduler_logger.error("Fail to execute task #%s (%s) on node %s: %s",
+                                     self.task_id, self.task_name, node, msg)
+            return dict(node=node, url='http://%s/' % (self.servers[0] if self.servers else '127.0.0.1:6800'),
+                        status_code=-1, status='exception', exception=msg)
         server = self.servers[node - 1]
         auth = self.auths[node - 1]
         url = 'http://%s/schedule.json' % server
