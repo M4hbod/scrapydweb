@@ -216,8 +216,14 @@ def _split_form_files(data):
     form, files = {}, {}
     for key, value in data.items():
         if isinstance(value, tuple):
-            path, filename = value[0], value[1]
-            files[key] = (filename, open(path, 'rb'))
+            src, filename = value[0], value[1]
+            if hasattr(src, 'read'):          # file-like (e.g. BytesIO)
+                fileobj = src
+            elif isinstance(src, (bytes, bytearray)):
+                fileobj = io.BytesIO(src)
+            else:                              # filesystem path
+                fileobj = open(src, 'rb')
+            files[key] = (filename, fileobj)
         else:
             form[key] = value
     return form, files

@@ -18,6 +18,7 @@ def register_routers(app):
     app.include_router(projects.router)
     app.include_router(logs.router)
     app.include_router(items.router)
-    from . import parse, send_text
+    from . import deploy, parse, send_text
     app.include_router(send_text.router)
     app.include_router(parse.router)
+    app.include_router(deploy.router)
