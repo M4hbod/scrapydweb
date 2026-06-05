@@ -14,9 +14,15 @@ router = APIRouter()
 @router.get('/{node:int}/nodereports/', name='nodereports')
 async def nodereports(request: Request, node: int, ctx: NodeContext = Depends(get_node_context)):
     app = request.app
+    import re
     url = 'http://%s/jobs' % ctx.SCRAPYD_SERVER
     status_code, text = await request_scrapyd(app.state.http_client, url, auth=ctx.AUTH, as_json=False)
-    jobs = _parse(text) if status_code == 200 else []
+    if status_code != 200 or not re.search(r'<h1>Jobs</h1>', text):
+        fail = 'scrapydweb/fail_mobileui.html' if ctx.USE_MOBILEUI else 'scrapydweb/fail.html'
+        return render(request, fail, node, ctx, page=dict(
+            node=node, url=u(app, 'jobs', node=node, listjobs='True'), status_code=status_code, text=text,
+            tip="Click the above link to make sure your Scrapyd server is accessable. "))
+    jobs = _parse(text)
     pending, running, finished = [], [], []
     for job in jobs:
         if not job['start']:
