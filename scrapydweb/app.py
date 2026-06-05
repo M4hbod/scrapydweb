@@ -74,6 +74,27 @@ def create_app(test_config=None):
 
     app.add_middleware(GZipMiddleware, minimum_size=500)
 
+    @app.middleware('http')
+    async def basic_auth(request, call_next):
+        s = request.app.state.settings
+        if s.get('ENABLE_AUTH', False):
+            import base64
+            from starlette.responses import Response
+            ok = False
+            header = request.headers.get('authorization', '')
+            if header.startswith('Basic '):
+                try:
+                    user, pwd = base64.b64decode(header[6:]).decode('utf-8').split(':', 1)
+                    ok = (user == str(s.get('USERNAME', '')) and pwd == str(s.get('PASSWORD', '')))
+                except Exception:
+                    ok = False
+            if not ok:
+                return Response(
+                    "<script>alert('Fail to login: basic auth for ScrapydWeb has been enabled');</script>",
+                    status_code=401,
+                    headers={'WWW-Authenticate': 'Basic realm="ScrapydWeb Basic Auth Required"'})
+        return await call_next(request)
+
     app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
 
     @app.get('/hello', response_class=PlainTextResponse)
