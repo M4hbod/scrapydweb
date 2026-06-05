@@ -326,9 +326,11 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
             if to_update and action == 'add_fire':
                 job_instance.modify(next_run_time=datetime.now())
             add_task_result = True
-            add_task_flash = (u"{target} task #{task_id} ({task_name}) successfully, next run at {nrt}. ".format(
+            msg = u"{target} task #{task_id} ({task_name}) successfully, next run at {nrt}. ".format(
                 target="Update" if to_update else 'Add', task_id=task_id, task_name=task_data['name'],
-                nrt=job_instance.next_run_time or NA) + postfix)
+                nrt=job_instance.next_run_time or NA)
+            add_task_flash = msg + postfix
+            apscheduler_logger.warning(msg)  # written to TIMER_TASKS_HISTORY_LOG by the file handler
         add_task_message = add_task_flash or add_task_error
     else:
         status_code, js = await request_scrapyd(app.state.http_client, url, data=data, auth=auth, as_json=True)
