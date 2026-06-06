@@ -13,7 +13,6 @@ import traceback
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
-from ..responses import redirect as _redirect
 from sqlalchemy import select
 
 from ..common import get_now_string, json_dumps
@@ -23,14 +22,12 @@ from ..models import Task
 from ..scheduler import scheduler
 from ..services.scrapyd import request_scrapyd
 from ..services.tasks import execute_task
-from ..templating import render
-from ..urls import safe_url_for as u, url_for
 from ..vars import LEGAL_NAME_PATTERN, RUN_SPIDER_HISTORY_LOG, SCHEDULE_ADDITIONAL, SCHEDULE_PATH, STRICT_NAME_PATTERN, UA_DICT
 from ..services.deploy_utils import slot
 
 router = APIRouter()
 apscheduler_logger = logging.getLogger('apscheduler')
-OK = 'ok'
+OK, ERROR = 'ok', 'error'
 NA = 'N/A'
 
 
@@ -54,118 +51,9 @@ async def history():
     return FileResponse(RUN_SPIDER_HISTORY_LOG, media_type='text/plain')
 
 
-def _fail(ctx):
-    return 'scrapydweb/fail_mobileui.html' if ctx.USE_MOBILEUI else 'scrapydweb/fail.html'
 
 
 # ----------------------------------------------------------------- ScheduleView (form / edit)
-async def schedule_view(request: Request, node: int, project: str = None, version: str = None,
-                        spider: str = None, ctx: NodeContext = Depends(get_node_context)):
-    app = request.app
-    s = app.state.settings
-    qp = request.query_params
-    task_id = qp.get('task_id')
-    task_id = int(task_id) if task_id else None
-    k = {}
-    selected_nodes = []
-    first_selected = node
-
-    if task_id:
-        async with SessionLocal() as session:
-            task = (await session.execute(select(Task).filter_by(id=task_id))).scalar_one_or_none()
-        if not task:
-            return render(request, _fail(ctx), node, ctx, page=dict(node=node, message="Task #%s not found" % task_id))
-        project, version, spider = task.project, task.version, task.spider
-        selected_nodes = json.loads(task.selected_nodes)
-        first_selected = selected_nodes[0]
-        settings_arguments = json.loads(task.settings_arguments)
-        k['expand_settings_arguments'] = len(settings_arguments) > 1 or settings_arguments['setting']
-        settings_dict = dict(x.split('=', 1) for x in settings_arguments.pop('setting'))
-        arguments_dict = settings_arguments
-        k['jobid'] = task.jobid or get_now_string()
-        ua = settings_dict.pop('USER_AGENT', '')
-        k['USER_AGENT'] = {v: kk for kk, v in UA_DICT.items()}.get(ua, '')
-        for key in ['ROBOTSTXT_OBEY', 'COOKIES_ENABLED']:
-            v = settings_dict.pop(key, '')
-            k[key] = v if v in ['True', 'False'] else ''
-        k['CONCURRENT_REQUESTS'] = settings_dict.pop('CONCURRENT_REQUESTS', '')
-        k['DOWNLOAD_DELAY'] = settings_dict.pop('DOWNLOAD_DELAY', '')
-        additional = ''
-        for kk, v in sorted(settings_dict.items()):
-            additional += "-d setting=%s=%s\r\n" % (kk, v)
-        for kk, v in sorted(arguments_dict.items()):
-            additional += "-d %s=%s\r\n" % (kk, v)
-        k['additional'] = additional
-        k['expand_timer_task'] = True
-        k['task_id'] = task_id
-        k['name'] = task.name or 'task #%s' % task_id
-        if not k['name'].endswith(' - edit'):
-            k['name'] += ' - edit'
-        k['year'] = task.year or '*'
-        k['month'] = task.month or '*'
-        k['day'] = task.day or '*'
-        k['week'] = task.week or '*'
-        k['day_of_week'] = [str(x.strip()) for x in task.day_of_week.split(',')] or ['*']
-        k['hour'] = task.hour or '*'
-        k['minute'] = task.minute or '0'
-        k['second'] = task.second or '0'
-        k['start_date'] = task.start_date or ''
-        k['end_date'] = task.end_date or ''
-        if task.timezone:
-            k['timezone'] = task.timezone
-        k['jitter'] = max(0, task.jitter)
-        k['misfire_grace_time'] = max(0, task.misfire_grace_time or 0)
-        k['coalesce'] = task.coalesce if task.coalesce in ['True', 'False'] else 'True'
-        k['max_instances'] = max(1, task.max_instances)
-    elif request.method == 'POST':
-        form = await request.form()
-        selected_nodes = [n for n in range(1, ctx.SCRAPYD_SERVERS_AMOUNT + 1) if form.get(str(n)) == 'on']
-        first_selected = selected_nodes[0] if selected_nodes else node
-    else:
-        selected_nodes = [node] if project else []
-
-    def g(key, default):
-        return s.get(key, default)
-    k.update(dict(
-        node=node, url='http://%s/schedule.json' % ctx.SCRAPYD_SERVER,
-        url_deploy=u(app, 'deploy', node=node), project=project, version=version, spider=spider,
-        selected_nodes=selected_nodes, first_selected_node=first_selected,
-        url_servers=u(app, 'servers', node=node, opt='schedule'),
-        url_schedule_run=u(app, 'schedule.run', node=node),
-        url_schedule_history=u(app, 'schedule.history'),
-        url_listprojects=u(app, 'api', node=node, opt='listprojects'),
-        url_listversions=u(app, 'api', node=node, opt='listversions', project='PROJECT_PLACEHOLDER'),
-        url_listspiders=u(app, 'api', node=node, opt='listspiders', project='PROJECT_PLACEHOLDER',
-                          version_spider_job='VERSION_PLACEHOLDER'),
-        url_schedule_check=u(app, 'schedule.check', node=node),
-    ))
-    k.setdefault('expand_settings_arguments', g('SCHEDULE_EXPAND_SETTINGS_ARGUMENTS', False))
-    k.setdefault('jobid', '')
-    k.setdefault('CUSTOM_USER_AGENT', g('SCHEDULE_CUSTOM_USER_AGENT', 'Mozilla/5.0'))
-    k.setdefault('USER_AGENT', '' if g('SCHEDULE_USER_AGENT', None) is None else g('SCHEDULE_USER_AGENT', None))
-    k.setdefault('ROBOTSTXT_OBEY', '' if g('SCHEDULE_ROBOTSTXT_OBEY', None) is None else g('SCHEDULE_ROBOTSTXT_OBEY', None))
-    k.setdefault('COOKIES_ENABLED', '' if g('SCHEDULE_COOKIES_ENABLED', None) is None else g('SCHEDULE_COOKIES_ENABLED', None))
-    k.setdefault('CONCURRENT_REQUESTS', '' if g('SCHEDULE_CONCURRENT_REQUESTS', None) is None else g('SCHEDULE_CONCURRENT_REQUESTS', None))
-    k.setdefault('DOWNLOAD_DELAY', '' if g('SCHEDULE_DOWNLOAD_DELAY', None) is None else g('SCHEDULE_DOWNLOAD_DELAY', None))
-    k.setdefault('additional', g('SCHEDULE_ADDITIONAL', SCHEDULE_ADDITIONAL))
-    k.setdefault('expand_timer_task', 'add_task' in qp)
-    k.setdefault('task_id', 0)
-    k['action'] = 'add_fire'
-    k['trigger'] = 'cron'
-    k.setdefault('name', '')
-    k['replace_existing'] = 'True'
-    for key, dv in [('year', '*'), ('month', '*'), ('day', '*'), ('week', '*'), ('hour', '*'),
-                    ('minute', '0'), ('second', '0'), ('start_date', ''), ('end_date', '')]:
-        k.setdefault(key, dv)
-    k.setdefault('day_of_week', ['*'])
-    k.setdefault('timezone', str(scheduler.timezone))
-    k.setdefault('jitter', 0)
-    k.setdefault('misfire_grace_time', 600)
-    k.setdefault('coalesce', 'True')
-    k.setdefault('max_instances', 1)
-    return render(request, 'scrapydweb/schedule.html', node, ctx, page=k)
-
-
 # ----------------------------------------------------------------- ScheduleCheckView
 def _get_int(form, key, default, minimum):
     value = form.get(key) or default
@@ -246,6 +134,7 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
     app = request.app
     form = await request.form()
     filename = form['filename']
+    as_json = True  # the HTML UI is gone; JSON is the only response shape
     servers = ctx.SCRAPYD_SERVERS
     auths = app.state.settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
 
@@ -354,6 +243,13 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
                 msg=msg, kwargs=json_dumps(kwargs), task_data=json_dumps(task_data))
     else:
         status_code, js = await request_scrapyd(app.state.http_client, url, data=data, auth=auth, as_json=True)
+        if js.get('status') == OK and js.get('jobid'):
+            from ..services.job_versions import record_job_version, resolve_version
+            server = servers[first - 1]
+            version = await resolve_version(app.state.http_client, server, auth,
+                                            data['project'], data.get('_version'))
+            await record_job_version(server, data['project'], data['spider'],
+                                     js['jobid'], version, source='run')
 
     # update history
     try:
@@ -370,32 +266,21 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
 
     # response
     if action in ['add', 'add_fire', 'add_pause']:
-        if add_task_result:
-            return _redirect(url_for(app, 'tasks', node=node, flash=add_task_flash))
-        return render(request, _fail(ctx), node, ctx, page=dict(
-            node=node, alert="Fail to add/edit task with error:", text=add_task_error,
-            tip=("Check out the HELP section in the Run Spider page, and then "
-                 "go back to the Timer Tasks page to re-edit task #%s. ") % task_id,
-            message=add_task_message))
+        if as_json:
+            return JSONResponse(dict(
+                status=OK if add_task_result else ERROR, action=action, task_id=task_id,
+                flash=add_task_flash, error=add_task_error, message=add_task_message))
+
     if js.get('status') == OK:
-        if not selected_amount:
-            return _redirect(url_for(app, 'jobs', node=node))
-        page = dict(
-            node=node, project=data['project'], version=data.get('_version', DEFAULT_LATEST_VERSION),
-            spider=data['spider'], selected_nodes=selected_nodes, first_selected_node=first, js=js,
-            url_stats_list=[u(app, 'log', node=n, opt='stats', project=data['project'],
-                              spider=data['spider'], job=data['jobid']) for n in range(1, ctx.SCRAPYD_SERVERS_AMOUNT + 1)],
-            url_xhr=u(app, 'schedule.xhr', node=node, filename=filename),
-            url_servers=u(app, 'servers', node=node, opt='getreports', project=data['project'],
-                          spider=data['spider'], version_job=data['jobid']))
-        return render(request, 'scrapydweb/schedule_results.html', node, ctx, page=page)
+        if as_json:
+            return JSONResponse(dict(
+                status=OK, js=js, project=data['project'], spider=data['spider'],
+                jobid=data['jobid'], version=data.get('_version', DEFAULT_LATEST_VERSION),
+                selected_nodes=selected_nodes, first_selected_node=first, filename=filename))
     alert = ("Multinode schedule terminated, since the first selected node returned status: " + js.get('status', '')
              if selected_amount > 1 else "Fail to schedule, got status: " + js.get('status', ''))
-    message = js.get('message', '')
-    if message:
-        js['message'] = 'See details below'
-    return render(request, _fail(ctx), node, ctx,
-                  page=dict(node=node, alert=alert, text=json_dumps(js), message=message))
+    if as_json:
+        return JSONResponse(dict(status=ERROR, alert=alert, js=js, message=js.get('message', '')))
 
 
 async def schedule_xhr(request: Request, node: int, filename: str,
@@ -409,6 +294,12 @@ async def schedule_xhr(request: Request, node: int, filename: str,
     status_code, js = await request_scrapyd(app.state.http_client,
                                             'http://%s/schedule.json' % ctx.SCRAPYD_SERVER,
                                             data=data, auth=ctx.AUTH, as_json=True)
+    if js.get('status') == OK and js.get('jobid'):
+        from ..services.job_versions import record_job_version, resolve_version
+        version = await resolve_version(app.state.http_client, ctx.SCRAPYD_SERVER, ctx.AUTH,
+                                        data['project'], data.get('_version'))
+        await record_job_version(ctx.SCRAPYD_SERVER, data['project'], data['spider'],
+                                 js['jobid'], version, source='run')
     return JSONResponse(js)
 
 
@@ -430,6 +321,12 @@ async def schedule_task(request: Request, node: int, ctx: NodeContext = Depends(
         data['jobid'] = jobid
         data.update(json.loads(task.settings_arguments))
         status_code, js = await request_scrapyd(app.state.http_client, url, data=data, auth=ctx.AUTH, as_json=True)
+        if js.get('status') == OK and js.get('jobid'):
+            from ..services.job_versions import record_job_version, resolve_version
+            version = await resolve_version(app.state.http_client, ctx.SCRAPYD_SERVER, ctx.AUTH,
+                                            task.project, task.version)
+            await record_job_version(ctx.SCRAPYD_SERVER, task.project, task.spider,
+                                     js['jobid'], version, source='task')
     return JSONResponse(js)
 
 
@@ -438,8 +335,3 @@ router.add_api_route('/{node:int}/schedule/check/', schedule_check, methods=['PO
 router.add_api_route('/{node:int}/schedule/run/', schedule_run, methods=['POST'], name='schedule.run')
 router.add_api_route('/{node:int}/schedule/xhr/{filename}/', schedule_xhr, methods=['GET', 'POST'], name='schedule.xhr')
 router.add_api_route('/{node:int}/schedule/task/', schedule_task, methods=['POST'], name='schedule.task')
-for _p in ('/{node:int}/schedule/{project}/{version}/{spider}/',
-           '/{node:int}/schedule/{project}/{version}/',
-           '/{node:int}/schedule/{project}/',
-           '/{node:int}/schedule/'):
-    router.add_api_route(_p, schedule_view, methods=['GET', 'POST'], name='schedule')

@@ -52,10 +52,11 @@ def _request_scrapyd_sync(url, data, auth):
 class TaskExecutor:
     def __init__(self, task_id, task_name, project, version, spider, settings_arguments, selected_nodes):
         s = _settings()
-        self.servers = s.get('SCRAPYD_SERVERS', []) or ['127.0.0.1:6800']
+        self.servers = s.get('SCRAPYD_SERVERS', []) or []
         self.auths = s.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
         self.task_id = task_id
         self.task_name = task_name
+        self.version = version
         self.data = dict(settings_arguments)
         self.data['project'] = project
         if version != DEFAULT_LATEST_VERSION:
@@ -104,7 +105,7 @@ class TaskExecutor:
             msg = 'node index error: %s, which should be between 1 and %s' % (node, len(self.servers))
             apscheduler_logger.error("Fail to execute task #%s (%s) on node %s: %s",
                                      self.task_id, self.task_name, node, msg)
-            return dict(node=node, url='http://%s/' % (self.servers[0] if self.servers else '127.0.0.1:6800'),
+            return dict(node=node, url='http://%s/' % (self.servers[0] if self.servers else 'unknown'),
                         status_code=-1, status='exception', exception=msg)
         server = self.servers[node - 1]
         auth = self.auths[node - 1]
@@ -113,6 +114,12 @@ class TaskExecutor:
         try:
             status_code, js = _request_scrapyd_sync(url, self.data, auth)
             assert js['status_code'] == 200 and js['status'] == 'ok', "Request got %s" % js
+            if js.get('jobid'):
+                # record the version this job runs with ("latest" differs per node)
+                from .job_versions import record_job_version_sync, resolve_version_sync
+                resolved = resolve_version_sync(server, auth, self.data['project'], self.version)
+                record_job_version_sync(server, self.data['project'], self.data['spider'],
+                                        js['jobid'], resolved, source='task')
         except Exception as err:
             if node not in self.nodes_to_retry:
                 apscheduler_logger.warning("Fail to execute task #%s (%s) on node %s, would retry later: %s",
