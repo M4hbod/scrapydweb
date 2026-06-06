@@ -29,6 +29,11 @@ lock:
 run:
     uv run scrapydweb
 
+# Dev server with auto-reload at http://127.0.0.1:{{port}} (Ctrl-C to stop).
+# Override servers: `SCRAPYD_SERVERS=admin:12345@127.0.0.1:6800 just dev`
+dev port="5000":
+    uv run uvicorn scrapydweb.asgi:app --reload --host 127.0.0.1 --port {{port}}
+
 # Start a local Scrapyd for the test suite (foreground; Ctrl-C to stop)
 scrapyd:
     mkdir -p {{scrapyd_dir}} {{logs_dir}}
