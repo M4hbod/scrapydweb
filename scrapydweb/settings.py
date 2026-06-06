@@ -1,11 +1,12 @@
 # coding: utf-8
 """Runtime settings container for the FastAPI app.
 
-Replaces Flask's ``app.config``. A plain mutable mapping seeded from
-``scrapydweb.default_settings`` so tests can still mutate values at runtime
-(``app.state.settings['SCRAPYD_SERVERS'] = ...``). Injected into routes via the
-``get_settings`` dependency in ``scrapydweb.deps``.
+A plain mutable mapping seeded from ``scrapydweb.default_settings``; layered in
+``create_app``: defaults < env overlays < DB-persisted settings < test overrides.
+Injected into routes via the ``get_settings`` dependency in ``scrapydweb.deps``.
 """
+import os
+
 from . import default_settings
 
 
@@ -34,21 +35,28 @@ class Settings(dict):
     def from_mapping(self, *args, **kwargs):
         self.update(*args, **kwargs)
 
-    def from_pyfile(self, path, silent=False):
-        import types
-        module = types.ModuleType('scrapydweb_user_settings')
-        module.__file__ = path
-        try:
-            with open(path, 'rb') as f:
-                exec(compile(f.read(), path, 'exec'), module.__dict__)
-        except IOError:
-            if silent:
-                return False
-            raise
-        for key in dir(module):
-            if key.isupper():
-                self[key] = getattr(module, key)
-        return True
+
+def _env_bool(name):
+    val = os.environ.get(name)
+    return None if val is None else val.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def env_overrides():
+    """Container-friendly env overlays (docker-compose sets these).
+
+    These act as SEEDS: a value later edited in the settings UI (persisted to
+    the DB) takes precedence over the env var.
+    """
+    out = {}
+    servers = os.environ.get('SCRAPYD_SERVERS')
+    if servers:
+        # raw strings; check_scrapyd_servers owns the user:pass@host:port#group parsing
+        out['SCRAPYD_SERVERS'] = [s.strip() for s in servers.split(',') if s.strip()]
+    for key in ('ENABLE_SLACK_ALERT', 'ENABLE_TELEGRAM_ALERT', 'ENABLE_EMAIL_ALERT'):
+        val = _env_bool(key)
+        if val is not None:
+            out[key] = val
+    return out
 
 
 def build_settings(overrides=None):

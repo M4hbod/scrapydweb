@@ -49,15 +49,6 @@ def handle_metadata(key=None, value=None):
         engine.dispose()
 
 
-def find_scrapydweb_settings_py(filename, path, prevpath=None):
-    if path == prevpath:
-        return ''
-    path = os.path.abspath(path)
-    cfgfile = os.path.join(path, filename)
-    if os.path.exists(cfgfile):
-        return cfgfile
-
-
 def get_now_string(allow_space=False):
     if allow_space:
         return time.strftime('%Y-%m-%d %H:%M:%S')

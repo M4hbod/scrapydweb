@@ -1,159 +1,240 @@
 # coding: utf-8
-"""Settings page (ports views/system/settings.py)."""
-from collections import OrderedDict, defaultdict
+"""Instance settings API (Windmill-style): DB-backed, edited in the SPA.
+
+GET  /api/settings/schema  -- groups + fields + effective values (+ system info)
+PUT  /api/settings         -- {settings: {...}, reset: [...]} -> validate,
+                              persist to the `setting` table, apply live.
+"""
+import logging
 import re
 
-from fastapi import APIRouter, Depends, Request
-from logparser import SETTINGS_PY_PATH as LOGPARSER_SETTINGS_PY_PATH
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+from logparser import SETTINGS_PY_PATH as LOGPARSER_SETTINGS_PY_PATH  # noqa: F401 (version import below)
 from logparser import __version__ as LOGPARSER_VERSION
+from starlette.concurrency import run_in_threadpool
 
-from ..common import handle_slash, json_dumps as _json_dumps
-from ..context import NodeContext, get_node_context
-from ..templating import render
-from ..vars import (APSCHEDULER_DATABASE_URI, ALERT_TRIGGER_KEYS, DATA_PATH,
-                    PYTHON_VERSION, SCHEDULER_STATE_DICT, SCRAPY_VERSION, SCRAPYD_VERSION,
-                    SCHEDULE_ADDITIONAL, SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI)
-from ..scheduler import scheduler
 from ..__version__ import __version__ as SCRAPYDWEB_VERSION
+from ..scheduler import scheduler
+from ..settings_registry import (BOOTSTRAP_KEYS, GROUPS, REGISTRY,
+                                 SECRET_SENTINEL, default_for)
+from ..settings_store import delete_db_settings, get_db_settings, set_db_settings
+from ..vars import (APSCHEDULER_DATABASE_URI, DATA_PATH, PYTHON_VERSION,
+                    SCHEDULER_STATE_DICT, SCRAPY_VERSION, SCRAPYD_VERSION,
+                    SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI)
 
-router = APIRouter()
-
-
-def json_dumps(obj, sort_keys=False):
-    s = _json_dumps(obj, sort_keys=sort_keys)
-    return s.replace(' true', ' True').replace(' false', ' False').replace(' null', ' None')
-
-
-def protect(string):
-    if not isinstance(string, str):
-        return string
-    length = len(string)
-    if length < 4:
-        return '*' * length
-    elif length < 12:
-        return ''.join([string[i] if not i % 2 else '*' for i in range(0, length)])
-    return re.sub(r'^.{4}(.*?).{4}$', r'****\1****', string)
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix='/api/settings')
 
 
 def hide_account(string):
     return re.sub(r'//.+@', '//', string)
 
 
-@router.get('/{node:int}/settings/', name='settings')
-async def settings_page(request: Request, node: int, ctx: NodeContext = Depends(get_node_context)):
-    s = request.app.state.settings
-    g = s.get
-    k = {}
+def _server_rows(s):
+    """Zip the derived lists into structured rows for the UI servers editor."""
+    servers = s.get('SCRAPYD_SERVERS', []) or []
+    groups = s.get('SCRAPYD_SERVERS_GROUPS', []) or [''] * len(servers)
+    auths = s.get('SCRAPYD_SERVERS_AUTHS', []) or [None] * len(servers)
+    publics = s.get('SCRAPYD_SERVERS_PUBLIC_URLS', None) or [''] * len(servers)
+    rows = []
+    for idx, server in enumerate(servers):
+        host, _, port = server.partition(':')
+        auth = auths[idx] if idx < len(auths) else None
+        rows.append(dict(
+            host=host, port=int(port or 6800),
+            username=(auth[0] if auth else ''),
+            password=(SECRET_SENTINEL if auth and auth[1] else ''),
+            group=groups[idx] if idx < len(groups) else '',
+            public_url=publics[idx] if idx < len(publics) else '',
+        ))
+    return rows
 
-    k['DEFAULT_SETTINGS_PY_PATH'] = handle_slash(g('DEFAULT_SETTINGS_PY_PATH', ''))
-    k['SCRAPYDWEB_SETTINGS_PY_PATH'] = handle_slash(g('SCRAPYDWEB_SETTINGS_PY_PATH', ''))
-    k['MAIN_PID'] = g('MAIN_PID')
-    k['LOGPARSER_PID'] = g('LOGPARSER_PID')
-    k['POLL_PID'] = g('POLL_PID')
 
-    k['python_version'] = PYTHON_VERSION
-    k['scrapydweb_version'] = SCRAPYDWEB_VERSION
-    k['scrapydweb_server'] = json_dumps(dict(
-        SCRAPYDWEB_BIND=g('SCRAPYDWEB_BIND', '0.0.0.0'),
-        SCRAPYDWEB_PORT=g('SCRAPYDWEB_PORT', 5000),
-        URL_SCRAPYDWEB=g('URL_SCRAPYDWEB', 'http://127.0.0.1:5000'),
-        ENABLE_AUTH=g('ENABLE_AUTH', False),
-        USERNAME=protect(g('USERNAME', '')),
-        PASSWORD=protect(g('PASSWORD', ''))))
-    k['ENABLE_HTTPS'] = g('ENABLE_HTTPS', False)
-    k['enable_https_details'] = json_dumps(dict(
-        CERTIFICATE_FILEPATH=g('CERTIFICATE_FILEPATH', ''),
-        PRIVATEKEY_FILEPATH=g('PRIVATEKEY_FILEPATH', '')))
+def _field_dto(field, s, sources):
+    value = s.get(field.key, default_for(field.key))
+    if field.type == 'secret':
+        value = SECRET_SENTINEL if value else ''
+    default = default_for(field.key)
+    if field.type == 'secret':
+        default = ''
+    return dict(
+        key=field.key, type=field.type, label=field.label, help=field.help,
+        default=default, value=value, source=sources.get(field.key, 'default'),
+        apply=field.apply, secret=field.type == 'secret', nullable=field.nullable,
+        choices=list(field.choices) or None, min=field.min, textarea=field.textarea,
+    )
 
-    k['scrapy_version'] = SCRAPY_VERSION
-    k['SCRAPY_PROJECTS_DIR'] = handle_slash(g('SCRAPY_PROJECTS_DIR', '')) or "''"
 
-    k['scrapyd_version'] = SCRAPYD_VERSION
-    servers = defaultdict(list)
-    groups = s.get('SCRAPYD_SERVERS_GROUPS', []) or ['']
-    auths = s.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
-    for group, server, auth in zip(groups, ctx.SCRAPYD_SERVERS, auths):
-        _server = '%s:%s@%s' % (protect(auth[0]), protect(auth[1]), server) if auth else server
-        servers[group].append(_server)
-    k['servers'] = json_dumps(servers)
-    k['CHECK_SCRAPYD_SERVERS'] = g('CHECK_SCRAPYD_SERVERS', True)
-    k['LOCAL_SCRAPYD_SERVER'] = g('LOCAL_SCRAPYD_SERVER', '') or "''"
-    k['LOCAL_SCRAPYD_LOGS_DIR'] = handle_slash(g('LOCAL_SCRAPYD_LOGS_DIR', '')) or "''"
-    k['SCRAPYD_LOG_EXTENSIONS'] = g('SCRAPYD_LOG_EXTENSIONS', []) or ['.log', '.log.gz', '.txt', '.gz', '']
+@router.get('/schema', name='settings.schema')
+async def settings_schema(request: Request):
+    app = request.app
+    s = app.state.settings
+    sources = getattr(app.state, 'settings_sources', {})
 
-    k['ENABLE_LOGPARSER'] = g('ENABLE_LOGPARSER', False)
-    k['logparser_version'] = LOGPARSER_VERSION
-    k['logparser_settings_py_path'] = handle_slash(LOGPARSER_SETTINGS_PY_PATH)
-    k['BACKUP_STATS_JSON_FILE'] = g('BACKUP_STATS_JSON_FILE', True)
+    groups = []
+    for gid, label in GROUPS:
+        fields = [_field_dto(f, s, sources) for f in REGISTRY.values() if f.group == gid]
+        groups.append(dict(id=gid, label=label, fields=fields))
 
-    k['scheduler_state'] = SCHEDULER_STATE_DICT[scheduler.state]
-    k['JOBS_SNAPSHOT_INTERVAL'] = g('JOBS_SNAPSHOT_INTERVAL', 300)
-    k['CHECK_TASK_RESULT_INTERVAL'] = g('CHECK_TASK_RESULT_INTERVAL', 300)
-    k['KEEP_TASK_RESULT_LIMIT'] = g('KEEP_TASK_RESULT_LIMIT', 1000)
-    k['KEEP_TASK_RESULT_WITHIN_DAYS'] = g('KEEP_TASK_RESULT_WITHIN_DAYS', 31)
+    meta = {}
+    try:
+        from ..db import get_metadata
+        meta = await get_metadata()
+    except Exception:
+        pass
 
-    k['run_spider_details'] = json_dumps(dict(
-        SCHEDULE_EXPAND_SETTINGS_ARGUMENTS=g('SCHEDULE_EXPAND_SETTINGS_ARGUMENTS', False),
-        SCHEDULE_CUSTOM_USER_AGENT=g('SCHEDULE_CUSTOM_USER_AGENT', 'Mozilla/5.0'),
-        SCHEDULE_USER_AGENT=g('SCHEDULE_USER_AGENT', None),
-        SCHEDULE_ROBOTSTXT_OBEY=g('SCHEDULE_ROBOTSTXT_OBEY', None),
-        SCHEDULE_COOKIES_ENABLED=g('SCHEDULE_COOKIES_ENABLED', None),
-        SCHEDULE_CONCURRENT_REQUESTS=g('SCHEDULE_CONCURRENT_REQUESTS', None),
-        SCHEDULE_DOWNLOAD_DELAY=g('SCHEDULE_DOWNLOAD_DELAY', None),
-        SCHEDULE_ADDITIONAL=g('SCHEDULE_ADDITIONAL', SCHEDULE_ADDITIONAL)))
+    system_info = dict(
+        scrapydweb_version=SCRAPYDWEB_VERSION,
+        python_version=PYTHON_VERSION,
+        scrapy_version=SCRAPY_VERSION,
+        scrapyd_version=SCRAPYD_VERSION,
+        logparser_version=LOGPARSER_VERSION,
+        DATA_PATH=DATA_PATH,
+        MAIN_PID=s.get('MAIN_PID'),
+        scheduler_state=SCHEDULER_STATE_DICT[scheduler.state],
+        URL_SCRAPYDWEB=s.get('URL_SCRAPYDWEB', meta.get('url_scrapydweb', '')),
+        databases=dict(
+            default=hide_account(SQLALCHEMY_DATABASE_URI),
+            metadata=hide_account(SQLALCHEMY_BINDS['metadata']),
+            jobs=hide_account(SQLALCHEMY_BINDS['jobs']),
+            apscheduler=hide_account(APSCHEDULER_DATABASE_URI),
+        ),
+    )
 
-    k['page_display_details'] = json_dumps(dict(
-        SHOW_SCRAPYD_ITEMS=g('SHOW_SCRAPYD_ITEMS', True),
-        SHOW_JOBS_JOB_COLUMN=g('SHOW_JOBS_JOB_COLUMN', False),
-        JOBS_FINISHED_JOBS_LIMIT=g('JOBS_FINISHED_JOBS_LIMIT', 0),
-        JOBS_RELOAD_INTERVAL=g('JOBS_RELOAD_INTERVAL', 300),
-        DAEMONSTATUS_REFRESH_INTERVAL=g('DAEMONSTATUS_REFRESH_INTERVAL', 10)))
+    return JSONResponse(dict(
+        status='ok', groups=groups,
+        servers_value=_server_rows(s),
+        pending_restart=sorted(getattr(app.state, 'pending_restart', set())),
+        system_info=system_info,
+    ))
 
-    k['slack_details'] = json_dumps(dict(
-        SLACK_TOKEN=protect(g('SLACK_TOKEN', '')), SLACK_CHANNEL=g('SLACK_CHANNEL', '') or 'general'))
-    k['telegram_details'] = json_dumps(dict(
-        TELEGRAM_TOKEN=protect(g('TELEGRAM_TOKEN', '')), TELEGRAM_CHAT_ID=g('TELEGRAM_CHAT_ID', 0)))
-    k['email_details'] = json_dumps(dict(EMAIL_SUBJECT=g('EMAIL_SUBJECT', '') or 'Email from #scrapydweb'))
-    email_sender = g('EMAIL_SENDER', '')
-    k['email_sender_recipients'] = json_dumps(dict(
-        EMAIL_USERNAME=g('EMAIL_USERNAME', '') or email_sender,
-        EMAIL_PASSWORD=protect(g('EMAIL_PASSWORD', '')),
-        EMAIL_SENDER=email_sender,
-        EMAIL_RECIPIENTS=g('EMAIL_RECIPIENTS', [])))
-    k['email_smtp_settings'] = json_dumps(dict(
-        SMTP_SERVER=g('SMTP_SERVER', ''), SMTP_PORT=g('SMTP_PORT', 0),
-        SMTP_OVER_SSL=g('SMTP_OVER_SSL', False), SMTP_CONNECTION_TIMEOUT=g('SMTP_CONNECTION_TIMEOUT', 30)))
 
-    k['ENABLE_MONITOR'] = g('ENABLE_MONITOR', False)
-    k['poll_interval'] = json_dumps(dict(
-        POLL_ROUND_INTERVAL=g('POLL_ROUND_INTERVAL', 300),
-        POLL_REQUEST_INTERVAL=g('POLL_REQUEST_INTERVAL', 10)))
-    k['alert_switcher'] = json_dumps(dict(
-        ENABLE_SLACK_ALERT=g('ENABLE_SLACK_ALERT', False),
-        ENABLE_TELEGRAM_ALERT=g('ENABLE_TELEGRAM_ALERT', False),
-        ENABLE_EMAIL_ALERT=g('ENABLE_EMAIL_ALERT', False)))
-    k['alert_working_time'] = json_dumps([
-        dict(ALERT_WORKING_DAYS="%s" % sorted(g('ALERT_WORKING_DAYS', [])), remark="Monday is 1 and Sunday is 7"),
-        dict(ALERT_WORKING_HOURS="%s" % sorted(g('ALERT_WORKING_HOURS', [])), remark="From 0 to 23")])
+def _serialize_server_rows(rows, current):
+    """Structured rows -> ('user:pass@host:port#group' strings, public_urls).
 
-    d = OrderedDict()
-    d['ON_JOB_RUNNING_INTERVAL'] = g('ON_JOB_RUNNING_INTERVAL', 0)
-    d['ON_JOB_FINISHED'] = g('ON_JOB_FINISHED', False)
-    for key in ALERT_TRIGGER_KEYS:
-        keys = ['LOG_%s_THRESHOLD' % key, 'LOG_%s_TRIGGER_STOP' % key, 'LOG_%s_TRIGGER_FORCESTOP' % key]
-        d[key] = {kk: g(kk, 0 if kk.endswith('THRESHOLD') else False) for kk in keys}
-    value = json_dumps(d)
-    value = re.sub(r'True', "<b style='color: red'>True</b>", value)
-    value = re.sub(r'(\s[1-9]\d*)', r"<b style='color: red'>\1</b>", value)
-    k['alert_triggers'] = value
+    A password of SECRET_SENTINEL keeps the currently-stored password of the
+    matching host:port.
+    """
+    cur_auths = {}
+    servers = current.get('SCRAPYD_SERVERS', []) or []
+    auths = current.get('SCRAPYD_SERVERS_AUTHS', []) or []
+    for idx, server in enumerate(servers):
+        cur_auths[server] = auths[idx] if idx < len(auths) else None
 
-    k['DEBUG'] = g('DEBUG', False)
-    k['VERBOSE'] = g('VERBOSE', False)
-    k['DATA_PATH'] = DATA_PATH
-    k['database_details'] = json_dumps(dict(
-        APSCHEDULER_DATABASE_URI=hide_account(APSCHEDULER_DATABASE_URI),
-        SQLALCHEMY_DATABASE_URI=hide_account(SQLALCHEMY_DATABASE_URI),
-        SQLALCHEMY_BINDS_METADATA=hide_account(SQLALCHEMY_BINDS['metadata']),
-        SQLALCHEMY_BINDS_JOBS=hide_account(SQLALCHEMY_BINDS['jobs'])))
+    strings, publics = [], []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError('each server must be an object')
+        host = str(row.get('host', '')).strip()
+        if not host:
+            raise ValueError('server host is required')
+        port = str(row.get('port') or 6800).strip()
+        username = str(row.get('username') or '').strip()
+        password = str(row.get('password') or '').strip()
+        if password == SECRET_SENTINEL:
+            kept = cur_auths.get('%s:%s' % (host, port))
+            password = kept[1] if kept else ''
+        group = str(row.get('group') or '').strip()
+        s = host + ':' + port
+        if username and password:
+            s = '%s:%s@%s' % (username, password, s)
+        if group:
+            s += '#' + group
+        strings.append(s)
+        publics.append(str(row.get('public_url') or '').strip(' /'))
+    if not strings:
+        raise ValueError('at least one scrapyd server is required')
+    return strings, publics
 
-    return render(request, 'scrapydweb/settings.html', node, ctx, page=k)
+
+async def save_settings(request: Request):
+    from ..utils.apply_settings import apply_changes, validate_changes
+
+    app = request.app
+    s = app.state.settings
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({'status': 'error', 'errors': {'_body': 'invalid JSON body'}},
+                            status_code=400)
+    changes = dict(body.get('settings') or {})
+    reset = list(body.get('reset') or [])
+
+    errors = {}
+    nodes_changed = False
+
+    # bootstrap / unknown keys
+    for key in list(changes) + reset:
+        if key in BOOTSTRAP_KEYS:
+            errors[key] = 'bootstrap setting -- set via environment variable / CLI'
+        elif key not in REGISTRY:
+            errors[key] = 'unknown setting'
+    if errors:
+        return JSONResponse({'status': 'error', 'errors': errors}, status_code=400)
+
+    # secrets: keep-sentinel or empty string = no change
+    for key in list(changes):
+        field = REGISTRY[key]
+        if field.type == 'secret' and changes[key] in ('', SECRET_SENTINEL, None):
+            changes.pop(key)
+
+    # structured servers -> internal string format
+    public_urls = None
+    if 'SCRAPYD_SERVERS' in changes:
+        try:
+            strings, public_urls = _serialize_server_rows(changes['SCRAPYD_SERVERS'], s)
+        except ValueError as err:
+            return JSONResponse({'status': 'error',
+                                 'errors': {'SCRAPYD_SERVERS': str(err)}}, status_code=400)
+        changes['SCRAPYD_SERVERS'] = strings
+        nodes_changed = True
+
+    errors = validate_changes(changes, s)
+    if errors:
+        return JSONResponse({'status': 'error', 'errors': errors}, status_code=400)
+
+    if not changes and not reset:
+        return JSONResponse({'status': 'ok', 'results': {}, 'restart_required': False,
+                             'nodes_changed': False})
+
+    # persist (servers store the full auth strings + parallel public urls)
+    to_store = dict(changes)
+    if public_urls is not None:
+        to_store['SCRAPYD_SERVERS_PUBLIC_URLS'] = public_urls
+    prior = await get_db_settings()  # snapshot for rollback
+    await set_db_settings(to_store)
+
+    apply_input = dict(changes)
+    if public_urls is not None:
+        apply_input['SCRAPYD_SERVERS_PUBLIC_URLS'] = public_urls
+    try:
+        results = await run_in_threadpool(apply_changes, app, apply_input)
+    except ValueError as err:
+        # roll back the rows we just wrote to their prior state
+        restore = {k: prior[k] for k in to_store if k in prior}
+        if restore:
+            await set_db_settings(restore)
+        await delete_db_settings([k for k in to_store if k not in prior])
+        return JSONResponse({'status': 'error',
+                             'errors': {'SCRAPYD_SERVERS': str(err)}}, status_code=400)
+
+    # resets: delete rows + restore defaults live
+    if reset:
+        to_delete = list(reset)
+        if 'SCRAPYD_SERVERS' in reset:
+            to_delete.append('SCRAPYD_SERVERS_PUBLIC_URLS')  # stored alongside
+        await delete_db_settings(to_delete)
+        for key in reset:
+            s[key] = default_for(key)
+            app.state.settings_sources[key] = 'default'
+            results[key] = 'applied'
+
+    restart_required = any(v == 'restart_required' for v in results.values())
+    return JSONResponse({'status': 'ok', 'results': results,
+                         'restart_required': restart_required,
+                         'nodes_changed': nodes_changed})
+
+
+router.add_api_route('', save_settings, methods=['PUT', 'POST'], name='settings.save')
+router.add_api_route('/', save_settings, methods=['PUT', 'POST'], name='settings.save_slash')
