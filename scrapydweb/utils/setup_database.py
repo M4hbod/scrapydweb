@@ -27,6 +27,9 @@ def test_database_url_pattern(database_url):
 def setup_database(database_url, database_path):
     database_url = re.sub(r'\\', '/', database_url)
     database_url = re.sub(r'/$', '', database_url)
+    # SQLAlchemy 2.0 dropped the legacy 'postgres://' scheme -- normalize early so every
+    # URI built below (sync engines, APScheduler jobstore, async mapping) is valid.
+    database_url = re.sub(r'^postgres://', 'postgresql://', database_url)
     database_path = re.sub(r'\\', '/', database_path)
     database_path = re.sub(r'/$', '', database_path)
 
@@ -68,8 +71,10 @@ def setup_database(database_url, database_path):
     return APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS, database_path
 
 
-def drop_database(cur, dbname):
-    sql = "DROP DATABASE %s" % dbname
+def drop_database(cur, dbname, postgres=False):
+    # WITH (FORCE) (PG >= 13) kicks other sessions (e.g. a live dev server) so the
+    # test-mode drop cannot be blocked by "database is being accessed by other users".
+    sql = "DROP DATABASE IF EXISTS %s WITH (FORCE)" % dbname if postgres else "DROP DATABASE %s" % dbname
     print(sql)
     try:
         cur.execute(sql)
@@ -139,7 +144,7 @@ def setup_postgresql(username, password, host, port):
             # database "scrapydweb_apscheduler" is being accessed by other users
             # DETAIL:  There is 1 other session using the database.
             # To restart postgres server on Windonws -> win+R: services.msc
-            drop_database(cur, dbname)
+            drop_database(cur, dbname, postgres=True)
 
         # https://www.postgresql.org/docs/9.0/sql-createdatabase.html
         # https://stackoverflow.com/questions/9961795/

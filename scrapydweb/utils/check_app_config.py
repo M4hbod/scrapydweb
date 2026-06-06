@@ -13,12 +13,11 @@ from ..vars import (ALLOWED_SCRAPYD_LOG_EXTENSIONS, ALERT_TRIGGER_KEYS,
                     SCHEDULE_ADDITIONAL, STRICT_NAME_PATTERN, UA_DICT,
                     jobs_table_map)
 from .send_email import send_email
-from .sub_process import init_logparser, init_poll
 
 
 logger = logging.getLogger(__name__)
 
-REPLACE_URL_NODE_PATTERN = re.compile(r'(:\d+/)\d+/')
+REPLACE_URL_NODE_PATTERN = re.compile(r'(/api/)\d+/')
 EMAIL_PATTERN = re.compile(r'^[^@]+@[^@]+\.[^@]+$')
 HASH = '#' * 100
 # r'^(?:(?:(.*?)\:)(?:(.*?)@))?(.*?)(?:\:(.*?))?(?:#(.*?))?$'
@@ -72,15 +71,6 @@ def check_app_config(config):
     except (TypeError, ValueError, AssertionError):
         assert False, "SCRAPYDWEB_PORT should be a positive integer. Current value: %s" % SCRAPYDWEB_PORT
 
-    check_assert('ENABLE_AUTH', False, bool)
-    if config.get('ENABLE_AUTH', False):
-        # May be int from config file
-        check_assert('USERNAME', '', str, non_empty=True)
-        check_assert('PASSWORD', '', str, non_empty=True)
-        handle_metadata('username', config['USERNAME'])
-        handle_metadata('password', config['PASSWORD'])
-        logger.info("Basic auth enabled with USERNAME/PASSWORD: '%s'/'%s'", config['USERNAME'], config['PASSWORD'])
-
     check_assert('ENABLE_HTTPS', False, bool)
     if config.get('ENABLE_HTTPS', False):
         logger.info("HTTPS mode enabled: ENABLE_HTTPS = %s", config['ENABLE_HTTPS'])
@@ -89,10 +79,13 @@ def check_app_config(config):
             assert os.path.isfile(config[k]), "%s not found: %s" % (k, config[k])
         logger.info("Running in HTTPS mode: %s, %s", config['CERTIFICATE_FILEPATH'], config['PRIVATEKEY_FILEPATH'])
 
-    _protocol = 'https' if config.get('ENABLE_HTTPS', False) else 'http'
-    _bind = config.get('SCRAPYDWEB_BIND', '0.0.0.0')
-    _bind = '127.0.0.1' if _bind == '0.0.0.0' else _bind
-    config['URL_SCRAPYDWEB'] = '%s://%s:%s' % (_protocol, _bind, config.get('SCRAPYDWEB_PORT', 5000))
+    # honor a user-configured public URL (settings page / env); derive otherwise
+    if not config.get('URL_SCRAPYDWEB'):
+        _protocol = 'https' if config.get('ENABLE_HTTPS', False) else 'http'
+        _bind = config.get('SCRAPYDWEB_BIND', '0.0.0.0')
+        _bind = '127.0.0.1' if _bind == '0.0.0.0' else _bind
+        config['URL_SCRAPYDWEB'] = '%s://%s:%s' % (_protocol, _bind, config.get('SCRAPYDWEB_PORT', 5000))
+    config['URL_SCRAPYDWEB'] = config['URL_SCRAPYDWEB'].rstrip('/')
     handle_metadata('url_scrapydweb', config['URL_SCRAPYDWEB'])
     logger.info("Setting up URL_SCRAPYDWEB: %s", config['URL_SCRAPYDWEB'])
 
@@ -106,46 +99,7 @@ def check_app_config(config):
     # Scrapyd
     check_assert('CHECK_SCRAPYD_SERVERS', True, bool)
     check_scrapyd_servers(config)
-    # For JobsView
-    for node, scrapyd_server in enumerate(config['SCRAPYD_SERVERS'], 1):
-        # Note that check_app_config() is executed multiple times in test
-        if node not in jobs_table_map:
-            jobs_table_map[node] = create_jobs_table(re.sub(STRICT_NAME_PATTERN, '_', scrapyd_server))
-    from sqlalchemy import create_engine as _ce
-    from ..vars import SQLALCHEMY_BINDS as _BINDS
-    _eng = _ce(_BINDS['jobs'])
-    Base.metadata.create_all(_eng, tables=[m.local_table for m in Base.registry.mappers
-                                           if getattr(m.class_, '__bind_key__', None) == 'jobs'])
-    _eng.dispose()
-    logger.debug("Created %s tables for JobsView", len(jobs_table_map))
-
-    check_assert('LOCAL_SCRAPYD_LOGS_DIR', '', str)
-    check_assert('LOCAL_SCRAPYD_SERVER', '', str)
-    LOCAL_SCRAPYD_LOGS_DIR = config.get('LOCAL_SCRAPYD_LOGS_DIR', '')
-    if LOCAL_SCRAPYD_LOGS_DIR:
-        assert os.path.isdir(LOCAL_SCRAPYD_LOGS_DIR), "LOCAL_SCRAPYD_LOGS_DIR not found: %s" % LOCAL_SCRAPYD_LOGS_DIR
-        logger.info("Setting up LOCAL_SCRAPYD_LOGS_DIR: %s", handle_slash(LOCAL_SCRAPYD_LOGS_DIR))
-        LOCAL_SCRAPYD_SERVER = config.get('LOCAL_SCRAPYD_SERVER', '')
-        if LOCAL_SCRAPYD_SERVER and not re.search(r':\d+$', LOCAL_SCRAPYD_SERVER):
-            LOCAL_SCRAPYD_SERVER += ':6800'
-            config['LOCAL_SCRAPYD_SERVER'] = LOCAL_SCRAPYD_SERVER
-        if len(config['SCRAPYD_SERVERS']) > 1:
-            assert LOCAL_SCRAPYD_SERVER, \
-                ("The LOCAL_SCRAPYD_SERVER option must be set up since you have added multiple Scrapyd servers "
-                 "and set up the LOCAL_SCRAPYD_LOGS_DIR option.\nOtherwise, just set LOCAL_SCRAPYD_LOGS_DIR to ''")
-        else:
-            if not LOCAL_SCRAPYD_SERVER:
-                config['LOCAL_SCRAPYD_SERVER'] = config['SCRAPYD_SERVERS'][0]
-                LOCAL_SCRAPYD_SERVER = config['LOCAL_SCRAPYD_SERVER']
-        logger.info("Setting up LOCAL_SCRAPYD_SERVER: %s", LOCAL_SCRAPYD_SERVER)
-        assert LOCAL_SCRAPYD_SERVER in config['SCRAPYD_SERVERS'], \
-            "LOCAL_SCRAPYD_SERVER '%s' is not in the Scrapyd servers you have added:\n%s" % (
-                LOCAL_SCRAPYD_SERVER, config['SCRAPYD_SERVERS'])
-    # else:
-    #     _path = os.path.join(os.path.expanduser('~'), 'logs')
-    #     if os.path.isdir(_path):
-    #         config['LOCAL_SCRAPYD_LOGS_DIR'] = _path
-    #         logger.info("Found LOCAL_SCRAPYD_LOGS_DIR: %s", config['LOCAL_SCRAPYD_LOGS_DIR'])
+    ensure_jobs_tables(config)
 
     check_assert('SCRAPYD_LOG_EXTENSIONS', ALLOWED_SCRAPYD_LOG_EXTENSIONS, list, non_empty=True, containing_type=str)
     SCRAPYD_LOG_EXTENSIONS = config.get('SCRAPYD_LOG_EXTENSIONS', ALLOWED_SCRAPYD_LOG_EXTENSIONS)
@@ -153,16 +107,6 @@ def check_app_config(config):
         ("SCRAPYD_LOG_EXTENSIONS should be a list like %s. "
          "Current value: %s" % (ALLOWED_SCRAPYD_LOG_EXTENSIONS, SCRAPYD_LOG_EXTENSIONS))
     logger.info("Locating scrapy logfiles with SCRAPYD_LOG_EXTENSIONS: %s", SCRAPYD_LOG_EXTENSIONS)
-
-    # LogParser
-    check_assert('ENABLE_LOGPARSER', False, bool)
-    if config.get('ENABLE_LOGPARSER', False):
-        assert config.get('LOCAL_SCRAPYD_LOGS_DIR', ''), \
-            ("In order to automatically run LogParser at startup, you have to set up the LOCAL_SCRAPYD_LOGS_DIR option "
-             "first.\nOtherwise, set 'ENABLE_LOGPARSER = False' if you are not running any Scrapyd service "
-             "on the current ScrapydWeb host.\nNote that you can run the LogParser service separately "
-             "via command 'logparser' as you like. ")
-    check_assert('BACKUP_STATS_JSON_FILE', True, bool)
 
     # Run Spider
     check_assert('SCHEDULE_EXPAND_SETTINGS_ARGUMENTS', False, bool)
@@ -228,10 +172,6 @@ def check_app_config(config):
         check_assert('SMTP_CONNECTION_TIMEOUT', 30, int, allow_zero=False)
 
     # Monitor & Alert
-    check_assert('ENABLE_MONITOR', False, bool)
-    if config.get('ENABLE_MONITOR', False):
-        check_assert('POLL_ROUND_INTERVAL', 300, int, allow_zero=False)
-        check_assert('POLL_REQUEST_INTERVAL', 10, int, allow_zero=False)
 
         check_assert('ENABLE_SLACK_ALERT', False, bool)
         check_assert('ENABLE_TELEGRAM_ALERT', False, bool)
@@ -295,55 +235,18 @@ def check_app_config(config):
     logger.info("Scheduler for timer tasks: %s", SCHEDULER_STATE_DICT[scheduler.state])
 
     check_assert('JOBS_SNAPSHOT_INTERVAL', 300, int)
-    JOBS_SNAPSHOT_INTERVAL = config.get('JOBS_SNAPSHOT_INTERVAL', 300)
-    if JOBS_SNAPSHOT_INTERVAL:
-        # TODO: with app.app_context(): url = url_for('jobs', node=1)
-        # Working outside of application context.
-        # only because before app.run?!
-        username = config.get('USERNAME', '')
-        password = config.get('PASSWORD', '')
-        kwargs = dict(
-            # 'http(s)://127.0.0.1:5000' + '/1/jobs/'
-            url_jobs=config['URL_SCRAPYDWEB'] + handle_metadata().get('url_jobs', '/1/jobs/'),
-            auth=(username, password) if username and password else None,
-            nodes=list(range(1, len(config['SCRAPYD_SERVERS']) + 1))
-        )
-        logger.info(scheduler.add_job(id='jobs_snapshot', replace_existing=True,
-                                      func=create_jobs_snapshot, args=None, kwargs=kwargs,
-                                      trigger='interval', seconds=JOBS_SNAPSHOT_INTERVAL,
-                                      misfire_grace_time=60, coalesce=True, max_instances=1, jobstore='memory'))
-
     check_assert('CHECK_TASK_RESULT_INTERVAL', 300, int)
     check_assert('KEEP_TASK_RESULT_LIMIT', 1000, int)
     check_assert('KEEP_TASK_RESULT_WITHIN_DAYS', 31, int)
-    CHECK_TASK_RESULT_INTERVAL = config.get('CHECK_TASK_RESULT_INTERVAL', 300)
-    KEEP_TASK_RESULT_LIMIT = config.get('KEEP_TASK_RESULT_LIMIT', 1000)
-    KEEP_TASK_RESULT_WITHIN_DAYS = config.get('KEEP_TASK_RESULT_WITHIN_DAYS', 31)
-
-    logger.info('CHECK_TASK_RESULT_INTERVAL: %s' % CHECK_TASK_RESULT_INTERVAL)
-    logger.info('KEEP_TASK_RESULT_LIMIT: %s' % KEEP_TASK_RESULT_LIMIT)
-    logger.info('KEEP_TASK_RESULT_WITHIN_DAYS: %s' % KEEP_TASK_RESULT_WITHIN_DAYS)
-    if CHECK_TASK_RESULT_INTERVAL and (KEEP_TASK_RESULT_LIMIT or KEEP_TASK_RESULT_WITHIN_DAYS):
-        username = config.get('USERNAME', '')
-        password = config.get('PASSWORD', '')
-        kwargs = dict(
-            url=config['URL_SCRAPYDWEB'] + handle_metadata().get('url_delete_task_result',
-                                                                 '/1/tasks/xhr/delete/1/2/'),
-            auth=(username, password) if username and password else None,
-        )
-        logger.info(scheduler.add_job(id='delete_task_result', replace_existing=True,
-                                      func=delete_task_result, args=None, kwargs=kwargs,
-                                      trigger='interval', seconds=CHECK_TASK_RESULT_INTERVAL,
-                                      misfire_grace_time=60, coalesce=True, max_instances=1, jobstore='memory'))
-    # Subprocess
-    init_subprocess(config)
+    check_assert('STATS_COLLECT_INTERVAL', 10, int)
+    register_system_jobs(config)
 
 
-def create_jobs_snapshot(url_jobs, auth, nodes):
+def create_jobs_snapshot(url_jobs, headers, nodes):
     for node in nodes:
         url_jobs = re.sub(REPLACE_URL_NODE_PATTERN, r'\g<1>%s/' % node, url_jobs, count=1)
         try:
-            r = session.post(url_jobs, auth=auth, timeout=60)
+            r = session.post(url_jobs, headers=headers, timeout=60)
             assert r.status_code == 200, "Request got status_code: %s" % r.status_code
         except Exception as err:
             print("Fail to create jobs snapshot: %s\n%s" % (url_jobs, err))
@@ -351,10 +254,10 @@ def create_jobs_snapshot(url_jobs, auth, nodes):
         #     print(url_jobs, r.status_code)
 
 
-def delete_task_result(url, auth):
+def delete_task_result(url, headers):
     url = re.sub(r'(\d+/)+$', '', url)
     try:
-        r = session.post(url, auth=auth, timeout=60)
+        r = session.post(url, headers=headers, timeout=60)
         assert r.status_code == 200, "Request got status_code: %s" % r.status_code
     except Exception as err:
         print("Fail to delete task result: %s\n%s" % (url, err))
@@ -362,8 +265,90 @@ def delete_task_result(url, auth):
     #     print('delete_task_result', url, r.status_code, r.json())
 
 
-def check_scrapyd_servers(config):
-    SCRAPYD_SERVERS = config.get('SCRAPYD_SERVERS', []) or ['127.0.0.1:6800']
+def ensure_jobs_tables(config):
+    """Define + create the per-server jobs tables (shared with the apply engine)."""
+    for node, scrapyd_server in enumerate(config['SCRAPYD_SERVERS'], 1):
+        # executed multiple times in tests / on live server-list edits
+        jobs_table_map[node] = create_jobs_table(re.sub(STRICT_NAME_PATTERN, '_', scrapyd_server))
+    from sqlalchemy import create_engine as _ce
+    from ..vars import SQLALCHEMY_BINDS as _BINDS
+    _eng = _ce(_BINDS['jobs'])
+    Base.metadata.create_all(_eng, tables=[m.local_table for m in Base.registry.mappers
+                                           if getattr(m.class_, '__bind_key__', None) == 'jobs'])
+    _eng.dispose()
+    logger.debug("Created %s tables for jobs", len(jobs_table_map))
+
+
+def _remove_system_job(job_id):
+    try:
+        scheduler.remove_job(job_id, jobstore='memory')
+    except Exception:
+        pass
+
+
+def register_system_jobs(config):
+    """(Re-)register the jobs_snapshot / delete_task_result interval jobs.
+
+    Shared by boot (check_app_config) and the live settings apply engine.
+    An interval of 0 removes a previously registered job.
+    """
+    from ..auth import INTERNAL_TOKEN_HEADER
+    headers = {INTERNAL_TOKEN_HEADER: config.get('_INTERNAL_TOKEN', '')}
+    url_scrapydweb = config.get('URL_SCRAPYDWEB') or handle_metadata().get(
+        'url_scrapydweb', 'http://127.0.0.1:5000')
+
+    interval = config.get('JOBS_SNAPSHOT_INTERVAL', 300)
+    if interval:
+        kwargs = dict(
+            url_jobs=url_scrapydweb + '/api/1/jobs/',
+            headers=headers,
+            nodes=list(range(1, len(config['SCRAPYD_SERVERS']) + 1)),
+        )
+        logger.info(scheduler.add_job(id='jobs_snapshot', replace_existing=True,
+                                      func=create_jobs_snapshot, args=None, kwargs=kwargs,
+                                      trigger='interval', seconds=interval,
+                                      misfire_grace_time=60, coalesce=True, max_instances=1, jobstore='memory'))
+    else:
+        _remove_system_job('jobs_snapshot')
+
+    interval = config.get('CHECK_TASK_RESULT_INTERVAL', 300)
+    if interval and (config.get('KEEP_TASK_RESULT_LIMIT', 1000)
+                     or config.get('KEEP_TASK_RESULT_WITHIN_DAYS', 31)):
+        kwargs = dict(
+            url=url_scrapydweb + handle_metadata().get('url_delete_task_result',
+                                                       '/1/tasks/xhr/delete/1/2/'),
+            headers=headers,
+        )
+        logger.info(scheduler.add_job(id='delete_task_result', replace_existing=True,
+                                      func=delete_task_result, args=None, kwargs=kwargs,
+                                      trigger='interval', seconds=interval,
+                                      misfire_grace_time=60, coalesce=True, max_instances=1, jobstore='memory'))
+    else:
+        _remove_system_job('delete_task_result')
+
+    interval = config.get('STATS_COLLECT_INTERVAL', 10)
+    if interval:
+        from ..services.logstats import collect_all
+        logger.info(scheduler.add_job(id='stats_collector', replace_existing=True,
+                                      func=collect_all, args=None, kwargs=dict(config=config),
+                                      trigger='interval', seconds=interval,
+                                      misfire_grace_time=60, coalesce=True,
+                                      max_instances=1, jobstore='memory'))
+    else:
+        _remove_system_job('stats_collector')
+
+
+def check_scrapyd_servers(config, check_connectivity=None):
+    """Parse/normalize SCRAPYD_SERVERS into the 4 derived lists on config.
+
+    check_connectivity=None defers to config['CHECK_SCRAPYD_SERVERS'].
+
+    Prefers config['_SCRAPYD_SERVERS'] (raw 'user:pass@host:port#group' strings)
+    when present: the public SCRAPYD_SERVERS list is auth-stripped after a prior
+    derivation, so re-deriving from it would lose credentials.
+    """
+    SCRAPYD_SERVERS = (config.get('_SCRAPYD_SERVERS')
+                       or config.get('SCRAPYD_SERVERS', []) or [])
     SCRAPYD_SERVERS_PUBLIC_URLS = config.get('SCRAPYD_SERVERS_PUBLIC_URLS', None) or [''] * len(SCRAPYD_SERVERS)
     assert len(SCRAPYD_SERVERS_PUBLIC_URLS) == len(SCRAPYD_SERVERS), \
         "SCRAPYD_SERVERS_PUBLIC_URLS should have same length with SCRAPYD_SERVERS:\n%s\nvs.\n%s" % (
@@ -391,7 +376,9 @@ def check_scrapyd_servers(config):
         return [_group, '.'.join(parts), int(_port)]
 
     servers = sorted(set(servers), key=key_func)
-    if config.get('CHECK_SCRAPYD_SERVERS', True):
+    if check_connectivity is None:
+        check_connectivity = config.get('CHECK_SCRAPYD_SERVERS', True)
+    if check_connectivity:
         check_scrapyd_connectivity(servers)
 
     config['SCRAPYD_SERVERS'] = ['%s:%s' % (ip, port) for (group, ip, port, auth, public_url) in servers]
@@ -484,17 +471,3 @@ def check_email(config):
         logger.debug("kwargs for send_email():\n%s", json_dumps(kwargs, sort_keys=False))
     assert result, "Fail to send email. Modify the email settings above or set 'ENABLE_EMAIL_ALERT = False'"
     logger.info(kwargs['subject'])
-
-
-def init_subprocess(config):
-    if config.get('ENABLE_LOGPARSER', False):
-        config['LOGPARSER_PID'] = init_logparser(config)
-    else:
-        config['LOGPARSER_PID'] = None
-    handle_metadata('logparser_pid', config['LOGPARSER_PID'])
-
-    if config.get('ENABLE_MONITOR', False):
-        config['POLL_PID'] = init_poll(config)
-    else:
-        config['POLL_PID'] = None
-    handle_metadata('poll_pid', config['POLL_PID'])

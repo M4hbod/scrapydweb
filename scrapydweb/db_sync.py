@@ -7,14 +7,23 @@ BackgroundScheduler runs in its own thread (no asyncio loop), so its job
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from .models import Base
 from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
 
+
+def _kw(url):
+    # sqlite: no pool; postgres/mysql: pre-ping -- see scrapydweb.db._engine_kwargs.
+    if url.startswith('sqlite'):
+        return {'poolclass': NullPool}
+    return {'pool_pre_ping': True}
+
+
 sync_engines = {
-    None: create_engine(SQLALCHEMY_DATABASE_URI),
-    'metadata': create_engine(SQLALCHEMY_BINDS['metadata']),
-    'jobs': create_engine(SQLALCHEMY_BINDS['jobs']),
+    None: create_engine(SQLALCHEMY_DATABASE_URI, **_kw(SQLALCHEMY_DATABASE_URI)),
+    'metadata': create_engine(SQLALCHEMY_BINDS['metadata'], **_kw(SQLALCHEMY_BINDS['metadata'])),
+    'jobs': create_engine(SQLALCHEMY_BINDS['jobs'], **_kw(SQLALCHEMY_BINDS['jobs'])),
 }
 
 
