@@ -15,12 +15,16 @@ class NodeIndexError(Exception):
     def __init__(self, node, amount):
         self.node = node
         self.amount = amount
-        super().__init__('node index error: %s, which should be between 1 and %s' % (node, amount))
+        if amount == 0:
+            msg = 'no scrapyd servers configured -- add one on the Settings page'
+        else:
+            msg = 'node index error: %s, which should be between 1 and %s' % (node, amount)
+        super().__init__(msg)
 
 
 class NodeContext:
     def __init__(self, node, settings, request=None):
-        servers = settings.get('SCRAPYD_SERVERS') or ['127.0.0.1:6800']
+        servers = settings.get('SCRAPYD_SERVERS') or []
         self.SCRAPYD_SERVERS = servers
         self.SCRAPYD_SERVERS_AMOUNT = len(servers)
         if not (0 < node <= self.SCRAPYD_SERVERS_AMOUNT):
@@ -32,17 +36,15 @@ class NodeContext:
         auths = settings.get('SCRAPYD_SERVERS_AUTHS') or [None]
         self.GROUP = groups[node - 1]
         self.AUTH = auths[node - 1]
-        self.LOCAL_SCRAPYD_SERVER = settings.get('LOCAL_SCRAPYD_SERVER', '')
-        self.IS_LOCAL_SCRAPYD_SERVER = self.SCRAPYD_SERVER == self.LOCAL_SCRAPYD_SERVER
 
         ua = request.headers.get('user-agent', '') if request is not None else ''
         self.IS_MOBILE = bool(re.search(
             r'Android|webOS|iPad|iPhone|iPod|BlackBerry|IEMobile|Opera Mini', ua, re.I))
         self.IS_IPAD = bool(re.search(r'iPad', ua, re.I))
         self.IS_IE_EDGE = bool(re.search(r'MSIE|Edge', ua, re.I))
-        self.USE_MOBILEUI = (request is not None
-                             and request.query_params.get('ui', '') == 'mobile')
-        self.UI = 'mobile' if self.USE_MOBILEUI else None
+        # Mobile-UI feature removed -- one responsive UI is served to every device.
+        self.USE_MOBILEUI = False
+        self.UI = None
         self.POST = request is not None and request.method == 'POST'
 
     def selected_nodes_from_form(self, form):
@@ -54,10 +56,8 @@ def compute_features(settings, ctx, jobs_style, any_jobs, scheduler_state):
     from .vars import DEMO_PROJECTS_PATH, SQLALCHEMY_DATABASE_URI
     g = settings.get
     F = ''
-    F += 'A' if g('ENABLE_AUTH', False) else '-'
     F += 'D' if jobs_style == 'database' else 'C'
     F += 'd' if (g('SCRAPY_PROJECTS_DIR', '') or DEMO_PROJECTS_PATH) != DEMO_PROJECTS_PATH else '-'
-    F += 'L' if g('ENABLE_LOGPARSER', False) else '-'
     F += 'Sl' if g('ENABLE_SLACK_ALERT', False) else '-'
     F += 'Tg' if g('ENABLE_TELEGRAM_ALERT', False) else '-'
     F += 'Em' if g('ENABLE_EMAIL_ALERT', False) else '-'

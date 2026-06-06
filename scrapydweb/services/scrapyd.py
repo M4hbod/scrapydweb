@@ -37,7 +37,7 @@ async def request_scrapyd(client, url, data=None, auth=None, as_json=True, timeo
     except Exception as err:
         logger.error("!!!!! error with %s: %s", url, err)
         if as_json:
-            return -1, dict(url=url, auth=auth, status_code=-1, status=ERROR,
+            return -1, dict(url=_public_url(url), status_code=-1, status=ERROR,
                             message=str(err), when=get_now_string(True))
         return -1, str(err)
 
@@ -53,6 +53,11 @@ async def request_scrapyd(client, url, data=None, auth=None, as_json=True, timeo
     message = r_json.get('message', '')
     if message and not isinstance(message, dict):
         r_json['message'] = re.sub(r'\\n', '\n', message)
-    r_json.update(dict(url=url, auth=auth, status_code=r.status_code, when=get_now_string(True)))
+    # never echo credentials back to the client (no auth tuple, no userinfo in url)
+    r_json.update(dict(url=_public_url(url), status_code=r.status_code, when=get_now_string(True)))
     r_json.setdefault('status', NA)
     return r.status_code, r_json
+
+
+def _public_url(url):
+    return re.sub(r'//[^@/]*@', '//', url)
