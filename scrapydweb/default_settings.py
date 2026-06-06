@@ -19,12 +19,6 @@ SCRAPYDWEB_BIND = '0.0.0.0'
 # Accept connections on the specified port, the default is 5000.
 SCRAPYDWEB_PORT = 5000
 
-# The default is False, set it to True to enable basic auth for the web UI.
-ENABLE_AUTH = False
-# In order to enable basic auth, both USERNAME and PASSWORD should be non-empty strings.
-USERNAME = ''
-PASSWORD = ''
-
 
 # Make sure that [Scrapyd](https://github.com/scrapy/scrapyd) has been installed
 # and started on all of your hosts.
@@ -45,11 +39,9 @@ PASSWORD = ''
 #   - or if ScrapydWeb fails to parse the string format passed in,
 #   - it's recommended to pass in a tuple of 5 elements.
 #   - e.g. ('', '', '127.0.0.1', '6800', '') or ('username', 'password', 'localhost', '6801', 'group')
-SCRAPYD_SERVERS = [
-    '127.0.0.1:6800',
-    # 'username:password@localhost:6801#group',
-    ('username', 'password', 'localhost', '6801', 'group'),
-]
+# No servers by default -- add yours on the Settings page (or via the
+# SCRAPYD_SERVERS env var, comma-separated).
+SCRAPYD_SERVERS = []
 
 # The default is True, set it to False to skip checking connectivity of scrapyd at startup.
 CHECK_SCRAPYD_SERVERS = True
@@ -57,26 +49,6 @@ CHECK_SCRAPYD_SERVERS = True
 # It's recommended to update the three options below
 # if both ScrapydWeb and one of your Scrapyd servers run on the same machine.
 # ------------------------------ Chinese --------------------------------------
-# 假如 ScrapydWeb 和某个 Scrapyd 运行于同一台主机，建议更新如下三个设置项。
-
-# If both ScrapydWeb and one of your Scrapyd servers run on the same machine,
-# ScrapydWeb would try to directly read Scrapy logfiles from disk, instead of making a request
-# to the Scrapyd server.
-# e.g. '127.0.0.1:6800' or 'localhost:6801', do not forget the port number.
-LOCAL_SCRAPYD_SERVER = ''
-
-# Enter the directory when you run Scrapyd, run the command below
-# to find out where the Scrapy logs are stored:
-# python -c "from os.path import abspath, isdir; from scrapyd.config import Config; path = abspath(Config().get('logs_dir')); print(path); print(isdir(path))"
-# Check out https://scrapyd.readthedocs.io/en/stable/config.html#logs-dir for more info.
-# e.g. 'C:/Users/username/logs' or '/home/username/logs'
-LOCAL_SCRAPYD_LOGS_DIR = ''
-
-# The default is False, set it to True to automatically run LogParser as a subprocess at startup.
-# Note that you can run the LogParser service separately via command 'logparser' as you like.
-# Run 'logparser -h' to find out the config file of LogParser for more advanced settings.
-# Visit https://github.com/my8100/logparser for more info.
-ENABLE_LOGPARSER = False
 ############################## QUICK SETUP end ################################
 ############################## 快速设置 结束 ###################################
 
@@ -116,11 +88,17 @@ SCRAPYD_LOG_EXTENSIONS = ['.log', '.log.gz', '.txt']
 SCRAPYD_SERVERS_PUBLIC_URLS = None
 
 
-############################## LogParser ######################################
-# Whether to backup the stats json files locally after you visit the Stats page of a job
-# so that it is still accessible even if the original logfile has been deleted.
-# The default is True, set it to False to disable this behavior.
-BACKUP_STATS_JSON_FILE = True
+############################## CI / Deploy ###################################
+# Static token for CI pipelines (GitHub Actions etc.) to push eggs to
+# POST /api/deploy/push with the X-Deploy-Token header. Empty = disabled.
+DEPLOY_TOKEN = ''
+
+
+############################## Job Stats #####################################
+# ScrapydWeb fetches job logs from every Scrapyd node over HTTP and parses them
+# centrally (pages/items/finish reason for the Jobs page and the Stats page).
+# Interval in seconds between collection rounds. 0 disables the collector.
+STATS_COLLECT_INTERVAL = 10
 
 
 ############################## Timer Tasks ####################################
@@ -277,23 +255,15 @@ SMTP_OVER_SSL = False
 SMTP_CONNECTION_TIMEOUT = 30
 
 
-############################## Monitor & Alert ################################
-# The default is False, set it to True to launch the poll subprocess to monitor your crawling jobs.
-ENABLE_MONITOR = False
-
-########## poll interval ##########
-# Tip: In order to be notified (and stop or forcestop a job when triggered) in time,
-# you can reduce the value of POLL_ROUND_INTERVAL and POLL_REQUEST_INTERVAL,
-# at the cost of burdening both CPU and bandwidth of your servers.
-
-# Sleep N seconds before starting next round of poll, the default is 300.
-POLL_ROUND_INTERVAL = 300
-# Sleep N seconds between each request to the Scrapyd server while polling, the default is 10.
-POLL_REQUEST_INTERVAL = 10
 
 ########## alert switcher ##########
 # Tip: Set the SCRAPYDWEB_BIND option the in "QUICK SETUP" section to the actual IP of your host,
 # then you can visit ScrapydWeb via the links attached in the alert.
+
+# Public base URL of this scrapydweb instance, used in the links attached to
+# alert notifications (e.g. 'https://scrapydweb.example.com').
+# The default is '', which derives the URL from SCRAPYDWEB_BIND:SCRAPYDWEB_PORT.
+URL_SCRAPYDWEB = ''
 
 # The default is False, set it to True to enable alert via Slack, Telegram, or Email.
 # You have to set up your accounts in the "Send text" section above first.

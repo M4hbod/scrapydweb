@@ -10,6 +10,7 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 from .models import Base, Metadata
 from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
@@ -27,11 +28,26 @@ def _to_async_url(url):
     return url
 
 
+def _engine_kwargs(url):
+    # sqlite: no connection pool. The files can be recreated underneath a running
+    # server (e.g. the test suite wipes *.db); a pooled connection would then point
+    # at the old inode and every write fails with SQLITE_READONLY_DBMOVED
+    # ("attempt to write a readonly database"). Opening by path per use is cheap.
+    # postgres/mysql: pre-ping so connections killed by the test-mode
+    # DROP DATABASE ... WITH (FORCE) are replaced instead of erroring.
+    if url.startswith('sqlite'):
+        return {'poolclass': NullPool}
+    return {'pool_pre_ping': True}
+
+
 # bind key -> async engine. None is the default bind.
 engines = {
-    None: create_async_engine(_to_async_url(SQLALCHEMY_DATABASE_URI), future=True),
-    'metadata': create_async_engine(_to_async_url(SQLALCHEMY_BINDS['metadata']), future=True),
-    'jobs': create_async_engine(_to_async_url(SQLALCHEMY_BINDS['jobs']), future=True),
+    None: create_async_engine(_to_async_url(SQLALCHEMY_DATABASE_URI), future=True,
+                              **_engine_kwargs(SQLALCHEMY_DATABASE_URI)),
+    'metadata': create_async_engine(_to_async_url(SQLALCHEMY_BINDS['metadata']), future=True,
+                                    **_engine_kwargs(SQLALCHEMY_BINDS['metadata'])),
+    'jobs': create_async_engine(_to_async_url(SQLALCHEMY_BINDS['jobs']), future=True,
+                                **_engine_kwargs(SQLALCHEMY_BINDS['jobs'])),
 }
 
 
@@ -96,14 +112,26 @@ async def get_session():
 
 # ------------------------------------------------------------------ metadata
 from sqlalchemy import select  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
 
 from .__version__ import __version__  # noqa: E402
 
 
+async def _metadata_row(session):
+    """Fetch the row, self-healing if metadata.db was wiped under a live server."""
+    try:
+        return (await session.execute(
+            select(Metadata).filter_by(version=__version__))).scalar_one_or_none()
+    except OperationalError:  # e.g. 'no such table: metadata' after the file was recreated
+        await create_all_for_bind('metadata')
+        await ensure_metadata_row()
+        return (await session.execute(
+            select(Metadata).filter_by(version=__version__))).scalar_one_or_none()
+
+
 async def get_metadata():
     async with SessionLocal() as session:
-        row = (await session.execute(
-            select(Metadata).filter_by(version=__version__))).scalar_one_or_none()
+        row = await _metadata_row(session)
         if not row:
             return {}
         return {k: v for k, v in row.__dict__.items() if not k.startswith('_')}
@@ -111,8 +139,7 @@ async def get_metadata():
 
 async def set_metadata(key, value):
     async with SessionLocal() as session:
-        row = (await session.execute(
-            select(Metadata).filter_by(version=__version__))).scalar_one_or_none()
+        row = await _metadata_row(session)
         if row is None:
             return
         setattr(row, key, value)
@@ -128,12 +155,19 @@ _jobs_tables = {}
 
 
 async def get_jobs_table(node, server):
-    """Get (and create) the per-server Job table model + physical table (jobs bind)."""
+    """Get (and create) the per-server Job table model + physical table (jobs bind).
+
+    The physical table is ensured on EVERY call (create_all is checkfirst /
+    idempotent): the sqlite files can be wiped underneath a running server
+    (e.g. the test suite deletes *.db), so a created-once cache would leave
+    'no such table' errors behind.
+    """
     if node in _jobs_tables:
-        return _jobs_tables[node]
-    Job = create_jobs_table(_re.sub(STRICT_NAME_PATTERN, '_', server))
+        Job = _jobs_tables[node]
+    else:
+        Job = create_jobs_table(_re.sub(STRICT_NAME_PATTERN, '_', server))
+        _jobs_tables[node] = Job
     await create_all_for_bind('jobs')
-    _jobs_tables[node] = Job
     return Job
 
 
