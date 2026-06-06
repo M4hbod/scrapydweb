@@ -1,33 +1,31 @@
 # coding: utf-8
 """ASGI entrypoint for `uvicorn scrapydweb.asgi:app` (e.g. with --reload).
 
-Builds the app from default_settings, overlays ./scrapydweb_settings_v11.py if
-present, and allows a quick SCRAPYD_SERVERS override via the SCRAPYD_SERVERS env
-var (comma-separated, e.g. "admin:12345@127.0.0.1:6800").
+Settings are layered inside create_app(): defaults < env vars < DB-persisted
+(UI edits) < test overrides. There is no settings file.
 """
 import os
 
 from scrapydweb import create_app
-from scrapydweb.common import find_scrapydweb_settings_py
-from scrapydweb.vars import SCRAPYDWEB_SETTINGS_PY
+from scrapydweb.settings import _env_bool
 
 app = create_app()
 
-_path = find_scrapydweb_settings_py(SCRAPYDWEB_SETTINGS_PY, os.getcwd())
-if _path:
-    app.config.from_pyfile(_path)
+# Optional bootstrap: validate the config + start the LogParser/poll subprocesses
+# (the CLI path does this in run.py; uvicorn workers need it opt-in).
+if _env_bool('CHECK_APP_CONFIG'):
+    # check_app_config touches the metadata table, but tables are normally created in
+    # the app lifespan (which runs AFTER import) -- create them sync, first.
+    from scrapydweb.db import _tables_for_bind
+    from scrapydweb.db_sync import sync_engines
+    from scrapydweb.models import Base
+    for _bind in (None, 'metadata', 'jobs'):
+        _tables = _tables_for_bind(_bind)
+        if _tables:
+            Base.metadata.create_all(sync_engines[_bind], tables=_tables, checkfirst=True)
 
-_servers = os.environ.get('SCRAPYD_SERVERS')
-if _servers:
-    servers = [s.strip() for s in _servers.split(',') if s.strip()]
-    app.config['SCRAPYD_SERVERS'] = servers
-    # parse user:pass@host:port -> auth tuple per server
-    auths = []
-    for s in servers:
-        if '@' in s and ':' in s.split('@', 1)[0]:
-            cred = s.split('@', 1)[0]
-            auths.append(tuple(cred.split(':', 1)))
-        else:
-            auths.append(None)
-    app.config['SCRAPYD_SERVERS_AUTHS'] = auths
-    app.config['LOCAL_SCRAPYD_SERVER'] = servers[0].split('@')[-1]
+    from scrapydweb.common import handle_metadata
+    from scrapydweb.utils.check_app_config import check_app_config
+    app.config['MAIN_PID'] = os.getpid()
+    handle_metadata('main_pid', app.config['MAIN_PID'])
+    check_app_config(app.config)

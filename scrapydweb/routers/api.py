@@ -5,7 +5,6 @@ import re
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from logparser import __version__ as LOGPARSER_VERSION
 
 from ..common import get_now_string
 from ..context import DEFAULT_LATEST_VERSION, NodeContext, get_node_context
@@ -13,7 +12,7 @@ from ..services.scrapyd import ERROR, NA, OK, request_scrapyd
 
 router = APIRouter()
 
-API_MAP = dict(start='schedule', stop='cancel', forcestop='cancel', liststats='logs/stats')
+API_MAP = dict(start='schedule', stop='cancel', forcestop='cancel')
 
 
 def _build_url(ctx, opt, project, version_spider_job):
@@ -46,15 +45,7 @@ def _build_data(opt, project, version_spider_job):
 
 def _handle_result(js, status_code, opt, project, version_spider_job, server):
     if status_code != 200:
-        if opt == 'liststats':
-            if project and version_spider_job:
-                if status_code == 404:
-                    js = dict(status=OK, tip="'pip install logparser' and run command 'logparser'")
-            else:
-                js['tip'] = ("'pip install logparser' on host '%s' and run command 'logparser' "
-                             "to show crawled_pages and scraped_items. ") % server
-        else:
-            js['tip'] = "Make sure that your Scrapyd server is accessable. "
+        js['tip'] = "Make sure that your Scrapyd server is accessable. "
     elif js['status'] != OK:
         if re.search('No such file|no active project', js.get('message', '')):
             js['tip'] = "Maybe the project had been deleted, check out the Projects page. "
@@ -64,38 +55,7 @@ def _handle_result(js, status_code, opt, project, version_spider_job, server):
                          "and solve the problem in the Projects page. ")
         elif opt == 'listspiders' and re.search("TypeError: 'tuple'", js.get('message', '')):
             js['tip'] = "Maybe it's a broken project, check out the Projects page to delete it. "
-    elif opt == 'liststats':
-        if js.get('logparser_version') != LOGPARSER_VERSION:
-            if project and version_spider_job:
-                tip = "'pip install --upgrade logparser' to update LogParser to v%s" % LOGPARSER_VERSION
-                js = dict(status=OK, tip=tip)
-            else:
-                js['tip'] = ("'pip install --upgrade logparser' on host '%s' and run command 'logparser' "
-                             "to update LogParser to v%s") % (server, LOGPARSER_VERSION)
-                js['status'] = ERROR
-        elif project and version_spider_job:
-            js = _extract_pages_items(js, project, version_spider_job)
     return js
-
-
-def _extract_pages_items(js, project, version_spider_job):
-    details = None
-    if project in js['datas']:
-        for spider in js['datas'][project]:
-            for jobid in js['datas'][project][spider]:
-                if jobid == version_spider_job:
-                    details = js['datas'][project][spider][version_spider_job]
-                    js['project'] = project
-                    js['spider'] = spider
-                    js['jobid'] = jobid
-                    break
-    if not details:
-        details = dict(pages=NA, items=NA)
-    details.setdefault('project', project)
-    details.setdefault('spider', NA)
-    details.setdefault('jobid', version_spider_job)
-    details['logparser_version'] = js.get('logparser_version', None)
-    return dict(status=OK, details=details)
 
 
 async def call_api(request, ctx, opt, project=None, version_spider_job=None):
@@ -123,3 +83,15 @@ for _path in ('/{node:int}/api/{opt}/{project}/{version_spider_job}/',
               '/{node:int}/api/{opt}/{project}/',
               '/{node:int}/api/{opt}/'):
     router.add_api_route(_path, api, methods=['GET', 'POST'], name='api')
+
+
+# ---- header global search (queries the local jobs DB across nodes) ----
+from ..services.dashboard import search_jobs  # noqa: E402
+
+
+async def search(request: Request, node: int, q: str = '',
+                 ctx: NodeContext = Depends(get_node_context)):
+    return JSONResponse({'results': await search_jobs(request.app, q)})
+
+
+router.add_api_route('/{node:int}/search/', search, methods=['GET'], name='search')

@@ -1,6 +1,5 @@
 # coding: utf-8
 import glob
-import importlib
 import io
 import os
 import re
@@ -26,23 +25,10 @@ try:
 except ImportError:
     SCRAPYD_VERSION = '0.0.0'
 
-SCRAPYDWEB_SETTINGS_PY = 'scrapydweb_settings_v11.py'
-sys.path.append(os.getcwd())
-try:
-    custom_settings_module = importlib.import_module(os.path.splitext(SCRAPYDWEB_SETTINGS_PY)[0])
-except ImportError:
-    custom_data_path = ''
-    custom_database_url = ''
-else:
-    custom_data_path = getattr(custom_settings_module, 'DATA_PATH', '')
-    custom_data_path = custom_data_path if isinstance(custom_data_path, str) else ''
-    custom_database_url = getattr(custom_settings_module, 'DATABASE_URL', '')
-    custom_database_url = custom_database_url if isinstance(custom_database_url, str) else ''
-
 # For data storage
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-DATA_PATH = default_data_path or custom_data_path
+DATA_PATH = default_data_path
 if DATA_PATH:
     DATA_PATH = os.path.abspath(DATA_PATH)
 else:
@@ -52,15 +38,15 @@ DATABASE_PATH = os.path.join(DATA_PATH, 'database')
 DEMO_PROJECTS_PATH = os.path.join(DATA_PATH, 'demo_projects')
 DEPLOY_PATH = os.path.join(DATA_PATH, 'deploy')
 HISTORY_LOG = os.path.join(DATA_PATH, 'history_log')
-PARSE_PATH = os.path.join(DATA_PATH, 'parse')
 SCHEDULE_PATH = os.path.join(DATA_PATH, 'schedule')
-STATS_PATH = os.path.join(DATA_PATH, 'stats')
 
 for path in [DATA_PATH, DATABASE_PATH, DEMO_PROJECTS_PATH, DEPLOY_PATH,
-             HISTORY_LOG, PARSE_PATH, SCHEDULE_PATH, STATS_PATH]:
+             HISTORY_LOG, SCHEDULE_PATH]:
     if not os.path.isdir(path):
         os.mkdir(path)
-    elif path in [PARSE_PATH, DEPLOY_PATH, SCHEDULE_PATH]:
+    elif path == SCHEDULE_PATH:
+        # schedule pickles are ephemeral; deploy eggs are NOT wiped -- the code
+        # viewer reads them to show the source a past job ran with
         for file in glob.glob(os.path.join(path, '*.*')):
             if not os.path.split(file)[-1] in ['ScrapydWeb_demo.log']:
                 os.remove(file)
@@ -69,7 +55,7 @@ RUN_SPIDER_HISTORY_LOG = os.path.join(HISTORY_LOG, 'run_spider_history.log')
 TIMER_TASKS_HISTORY_LOG = os.path.join(HISTORY_LOG, 'timer_tasks_history.log')
 
 # For database
-DATABASE_URL = custom_database_url or default_database_url or 'sqlite:///' + DATABASE_PATH
+DATABASE_URL = default_database_url or 'sqlite:///' + DATABASE_PATH
 results = setup_database(DATABASE_URL, DATABASE_PATH)
 APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS, DATABASE_PATH = results
 
