@@ -19,7 +19,14 @@ export function NodeProvider({ children }: { children: React.ReactNode }) {
     const saved = Number(localStorage.getItem("scrapydweb.node"))
     return Number.isInteger(saved) && saved >= 1 ? saved : 1
   })
-  const { data } = useQuery({ queryKey: ["nodes"], queryFn: api.nodes, staleTime: 60_000 })
+  const { data } = useQuery({
+    queryKey: ["nodes"],
+    queryFn: api.nodes,
+    staleTime: 60_000,
+    // zero-server state self-heals: keep polling until a server shows up
+    // (covers servers added outside this tab, e.g. via the API or another session)
+    refetchInterval: (q) => ((q.state.data?.nodes?.length ?? 0) > 0 ? false : 15_000),
+  })
   const nodes = data?.nodes ?? []
 
   const setNode = React.useCallback((n: number) => {
