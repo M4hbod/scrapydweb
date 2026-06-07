@@ -194,3 +194,26 @@ def test_alert_test_endpoint(client):
     assert 'SLACK_TOKEN' in str(js['result'])
     r = client.post('/api/alerts/test', json={'channel': 'bogus'})
     assert r.status_code == 400
+
+
+def test_schedule_check_structured_json(client):
+    """settings_json/args_json: digit keys + ' -d ' values survive; reserved arg keys skipped."""
+    import json as _json
+    js = client.post('/1/schedule/check/', data=dict(
+        project=PROJECT, _version='default: the latest version', spider=SPIDER, jobid='structured-test',
+        settings_json=_json.dumps([
+            {'key': 'CLOSESPIDER_TIMEOUT', 'value': '60'},
+            {'key': 'MY_KEY_2', 'value': 'x y -d z'},       # digit key + ' -d ' value: impossible via 'additional'
+            {'key': 'bad-key', 'value': 'nope'},            # invalid key -> dropped
+            {'key': 'EMPTY_VALUE', 'value': ''},            # empty value -> dropped
+        ]),
+        args_json=_json.dumps({'arg1': 'val1', 'project': 'evil', '1bad': 'nope'}),
+    )).json()
+    cmd = js['cmd']
+    assert 'setting=CLOSESPIDER_TIMEOUT=60' in cmd
+    assert 'setting=MY_KEY_2=x y -d z' in cmd
+    assert 'bad-key' not in cmd and 'EMPTY_VALUE' not in cmd
+    assert 'arg1=val1' in cmd
+    assert 'evil' not in cmd        # reserved 'project' not overridden
+    assert '1bad' not in cmd
+    assert ('project=%s' % PROJECT) in cmd

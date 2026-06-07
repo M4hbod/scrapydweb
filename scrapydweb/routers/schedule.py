@@ -9,6 +9,7 @@ from math import ceil
 import os
 import pickle
 import re
+import shlex
 import traceback
 
 from fastapi import APIRouter, Depends, Request
@@ -32,18 +33,16 @@ NA = 'N/A'
 
 
 def generate_cmd(auth, url, data):
-    cmd = 'curl -u %s:%s %s' % (auth[0], auth[1], url) if auth else 'curl %s' % url
+    parts = ['curl -u %s:%s %s' % (auth[0], auth[1], url) if auth else 'curl %s' % url]
     for key, value in data.items():
         if key == 'setting':
             for v in value:
-                t = tuple(v.split('=', 1))
-                if v.startswith('USER_AGENT='):
-                    cmd += ' --data-urlencode "setting=%s=%s"' % t
-                else:
-                    cmd += ' -d setting=%s=%s' % t
+                # quote + url-encode values with whitespace/quotes so the cmd stays copy-pasteable
+                flag = '--data-urlencode' if re.search(r'[\s"\']', v) else '-d'
+                parts.append('%s %s' % (flag, shlex.quote('setting=%s' % v)))
         elif key != '__task_data':
-            cmd += ' -d %s=%s' % (key, value)
-    return cmd
+            parts.append('-d %s' % shlex.quote('%s=%s' % (key, value)))
+    return ' \\\r\n'.join(parts)
 
 
 @router.get('/schedule/history/', name='schedule.history')
@@ -94,6 +93,23 @@ async def schedule_check(request: Request, node: int, ctx: NodeContext = Depends
             m_arg = re.match(r'([a-zA-Z_][0-9a-zA-Z_]*)=(.+)', part)
             if m_arg and m_arg.group(1) != 'setting':
                 data[m_arg.group(1)] = m_arg.group(2)
+    # Structured payloads from the SPA -- no '-d' textarea quirks (digit keys, values containing ' -d ').
+    try:
+        settings_json = json.loads(form.get('settings_json') or '[]')
+    except ValueError:
+        settings_json = []
+    for item in settings_json:
+        key, value = str(item.get('key', '')), str(item.get('value', ''))
+        if re.match(r'^[A-Z][A-Z0-9_]{0,30}$', key) and value:
+            data['setting'].append('%s=%s' % (key, value))
+    try:
+        args_json = json.loads(form.get('args_json') or '{}')
+    except ValueError:
+        args_json = {}
+    reserved = {'project', '_version', 'spider', 'jobid', 'setting', 'filename', 'checked_amount'}
+    for key, value in args_json.items():
+        if re.match(r'^[a-zA-Z_][0-9a-zA-Z_]*$', key) and key not in reserved:
+            data[key] = str(value)
     data['setting'].sort()
     _version = data.get('_version', 'default-the-latest-version')
     _filename = '{project}_{version}_{spider}'.format(project=data['project'], version=_version, spider=data['spider'])
@@ -123,9 +139,6 @@ async def schedule_check(request: Request, node: int, ctx: NodeContext = Depends
 
     cmd = generate_cmd(ctx.AUTH, 'http://%s/schedule.json' % ctx.SCRAPYD_SERVER,
                        {k: v for k, v in data.items() if k != '__task_data'})
-    cmd = re.sub(r'(curl -u\s+.*?:.*?)\s+(http://)', r'\1 \\\r\n\2', cmd)
-    cmd = re.sub(r'\s+-d\s+', ' \\\r\n-d ', cmd)
-    cmd = re.sub(r'\s+--data-urlencode\s+', ' \\\r\n--data-urlencode ', cmd)
     return JSONResponse({'filename': filename, 'cmd': cmd})
 
 
