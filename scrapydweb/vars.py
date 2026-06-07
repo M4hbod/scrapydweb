@@ -34,13 +34,12 @@ if DATA_PATH:
 else:
     DATA_PATH = os.path.join(ROOT_DIR, 'data')
 
-DATABASE_PATH = os.path.join(DATA_PATH, 'database')
 DEMO_PROJECTS_PATH = os.path.join(DATA_PATH, 'demo_projects')
 DEPLOY_PATH = os.path.join(DATA_PATH, 'deploy')
 HISTORY_LOG = os.path.join(DATA_PATH, 'history_log')
 SCHEDULE_PATH = os.path.join(DATA_PATH, 'schedule')
 
-for path in [DATA_PATH, DATABASE_PATH, DEMO_PROJECTS_PATH, DEPLOY_PATH,
+for path in [DATA_PATH, DEMO_PROJECTS_PATH, DEPLOY_PATH,
              HISTORY_LOG, SCHEDULE_PATH]:
     if not os.path.isdir(path):
         os.mkdir(path)
@@ -54,10 +53,9 @@ for path in [DATA_PATH, DATABASE_PATH, DEMO_PROJECTS_PATH, DEPLOY_PATH,
 RUN_SPIDER_HISTORY_LOG = os.path.join(HISTORY_LOG, 'run_spider_history.log')
 TIMER_TASKS_HISTORY_LOG = os.path.join(HISTORY_LOG, 'timer_tasks_history.log')
 
-# For database
-DATABASE_URL = default_database_url or 'sqlite:///' + DATABASE_PATH
-results = setup_database(DATABASE_URL, DATABASE_PATH)
-APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS, DATABASE_PATH = results
+# For database (PostgreSQL or MySQL -- a server backend is required)
+DATABASE_URL = default_database_url
+APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS = setup_database(DATABASE_URL)
 
 # For check_app_config() and BaseView
 ALLOWED_SCRAPYD_LOG_EXTENSIONS = ['.log', '.log.gz', '.txt', '.gz', '']

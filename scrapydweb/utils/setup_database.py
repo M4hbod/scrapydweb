@@ -12,7 +12,6 @@ DBS = [DB_APSCHEDULER, DB_TIMERTASKS, DB_METADATA, DB_JOBS]
 
 PATTERN_MYSQL = re.compile(r'mysql://(.+?)(?::(.+?))?@(.+?):(\d+)')
 PATTERN_POSTGRESQL = re.compile(r'(?:postgres|postgresql)://(.+?)(?::(.+?))?@(.+?):(\d+)')
-PATTERN_SQLITE = re.compile(r'sqlite:///(.+)$')
 
 SCRAPYDWEB_TESTMODE = os.environ.get('SCRAPYDWEB_TESTMODE', 'False').lower() == 'true'
 
@@ -20,55 +19,46 @@ SCRAPYDWEB_TESTMODE = os.environ.get('SCRAPYDWEB_TESTMODE', 'False').lower() == 
 def test_database_url_pattern(database_url):
     m_mysql = PATTERN_MYSQL.match(database_url)
     m_postgres = PATTERN_POSTGRESQL.match(database_url)
-    m_sqlite = PATTERN_SQLITE.match(database_url)
-    return m_mysql, m_postgres, m_sqlite
+    return m_mysql, m_postgres
 
 
-def setup_database(database_url, database_path):
+def setup_database(database_url):
+    """Ensure the four databases exist on the server backend and return the URIs.
+
+    A PostgreSQL (or MySQL) DATABASE_URL is required -- there is no embedded
+    fallback.
+    """
+    if not database_url:
+        sys.exit("DATABASE_URL is required, e.g. postgres://username:password@127.0.0.1:5432\n"
+                 "Set it via the DATABASE_URL environment variable.")
     database_url = re.sub(r'\\', '/', database_url)
     database_url = re.sub(r'/$', '', database_url)
     # SQLAlchemy 2.0 dropped the legacy 'postgres://' scheme -- normalize early so every
     # URI built below (sync engines, APScheduler jobstore, async mapping) is valid.
     database_url = re.sub(r'^postgres://', 'postgresql://', database_url)
-    database_path = re.sub(r'\\', '/', database_path)
-    database_path = re.sub(r'/$', '', database_path)
 
-    m_mysql, m_postgres, m_sqlite = test_database_url_pattern(database_url)
+    m_mysql, m_postgres = test_database_url_pattern(database_url)
     if m_mysql:
         setup_mysql(*m_mysql.groups())
     elif m_postgres:
         setup_postgresql(*m_postgres.groups())
     else:
-        database_path = m_sqlite.group(1) if m_sqlite else database_path
-        database_path = os.path.abspath(database_path)
-        database_path = re.sub(r'\\', '/', database_path)
-        database_path = re.sub(r'/$', '', database_path)
-        if not os.path.isdir(database_path):
-            os.mkdir(database_path)
+        sys.exit("Unsupported DATABASE_URL: %r\n"
+                 "Use postgres://username:password@host:port or mysql://username:password@host:port"
+                 % database_url)
 
-    if m_mysql or m_postgres:
-        APSCHEDULER_DATABASE_URI = '/'.join([database_url, DB_APSCHEDULER])
-        SQLALCHEMY_DATABASE_URI = '/'.join([database_url, DB_TIMERTASKS])
-        SQLALCHEMY_BINDS = {
-            'metadata': '/'.join([database_url, DB_METADATA]),
-            'jobs': '/'.join([database_url, DB_JOBS])
-        }
-    else:
-        # db names for backward compatibility
-        APSCHEDULER_DATABASE_URI = 'sqlite:///' + '/'.join([database_path, 'apscheduler.db'])
-        # http://flask-sqlalchemy.pocoo.org/2.3/binds/#binds
-        SQLALCHEMY_DATABASE_URI = 'sqlite:///' + '/'.join([database_path, 'timer_tasks.db'])
-        SQLALCHEMY_BINDS = {
-            'metadata': 'sqlite:///' + '/'.join([database_path, 'metadata.db']),
-            'jobs': 'sqlite:///' + '/'.join([database_path, 'jobs.db'])
-        }
+    APSCHEDULER_DATABASE_URI = '/'.join([database_url, DB_APSCHEDULER])
+    SQLALCHEMY_DATABASE_URI = '/'.join([database_url, DB_TIMERTASKS])
+    SQLALCHEMY_BINDS = {
+        'metadata': '/'.join([database_url, DB_METADATA]),
+        'jobs': '/'.join([database_url, DB_JOBS])
+    }
 
     if SCRAPYDWEB_TESTMODE:
-        print("DATABASE_PATH: %s" % database_path)
         print("APSCHEDULER_DATABASE_URI: %s" % APSCHEDULER_DATABASE_URI)
         print("SQLALCHEMY_DATABASE_URI: %s" % SQLALCHEMY_DATABASE_URI)
         print("SQLALCHEMY_BINDS: %s" % SQLALCHEMY_BINDS)
-    return APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS, database_path
+    return APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS
 
 
 def drop_database(cur, dbname, postgres=False):

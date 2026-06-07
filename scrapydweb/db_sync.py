@@ -3,27 +3,21 @@
 
 The web app uses the async engines in scrapydweb.db; the APScheduler
 BackgroundScheduler runs in its own thread (no asyncio loop), so its job
-(execute_task) needs a plain sync session. Same models / sqlite files.
+(execute_task) needs a plain sync session. Same models / databases.
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import NullPool
 
 from .models import Base
 from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
 
-
-def _kw(url):
-    # sqlite: no pool; postgres/mysql: pre-ping -- see scrapydweb.db._engine_kwargs.
-    if url.startswith('sqlite'):
-        return {'poolclass': NullPool}
-    return {'pool_pre_ping': True}
-
+# pre-ping -- see scrapydweb.db._engine_kwargs
+_KW = {'pool_pre_ping': True}
 
 sync_engines = {
-    None: create_engine(SQLALCHEMY_DATABASE_URI, **_kw(SQLALCHEMY_DATABASE_URI)),
-    'metadata': create_engine(SQLALCHEMY_BINDS['metadata'], **_kw(SQLALCHEMY_BINDS['metadata'])),
-    'jobs': create_engine(SQLALCHEMY_BINDS['jobs'], **_kw(SQLALCHEMY_BINDS['jobs'])),
+    None: create_engine(SQLALCHEMY_DATABASE_URI, **_KW),
+    'metadata': create_engine(SQLALCHEMY_BINDS['metadata'], **_KW),
+    'jobs': create_engine(SQLALCHEMY_BINDS['jobs'], **_KW),
 }
 
 
