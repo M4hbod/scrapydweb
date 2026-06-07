@@ -1,0 +1,21 @@
+# Scrapyd node image (pinned: scrapy>=2.13 dropped Spider.start_requests used by the
+# demo eggs; Twisted>=25 removed a symbol scrapy<2.13 imports; scrapyd's runner.py
+# needs pkg_resources which is gone in setuptools>=81).
+FROM public.ecr.aws/docker/library/python:3.13-slim
+
+RUN pip install --no-cache-dir "scrapy<2.13" "scrapyd" "Twisted<25" "setuptools<81"
+
+RUN mkdir -p /scrapyd/logs /scrapyd/eggs /scrapyd/dbs /scrapyd/items \
+    && chown -R 1000:1000 /scrapyd
+COPY docker/scrapyd.conf /etc/scrapyd/scrapyd.conf
+
+WORKDIR /scrapyd
+# run as the host user so bind-mounted log files stay owned by the developer.
+# HOME must be writable: pkg_resources extracts zipped eggs to ~/.python-eggs --
+# without it every egg import dies with ModuleNotFoundError.
+ENV HOME=/scrapyd \
+    PYTHON_EGG_CACHE=/scrapyd/.python-eggs
+USER 1000:1000
+EXPOSE 6800
+HEALTHCHECK --interval=5s --timeout=4s --retries=20 CMD ["python", "-c", "import urllib.request as u, base64; r = u.Request('http://127.0.0.1:6800/daemonstatus.json', headers={'Authorization': 'Basic ' + base64.b64encode(b'admin:12345').decode()}); u.urlopen(r, timeout=3)"]
+CMD ["scrapyd"]
