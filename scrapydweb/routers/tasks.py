@@ -45,7 +45,7 @@ async def _paginate(session, stmt_count, stmt_items, page, per_page):
 
 async def tasks_xhr(request: Request, node: int, action: str, task_id: int = None, task_result_id: int = None):
     # DB/scheduler only -- no node context needed (works with zero servers)
-    await create_all_for_bind(None)  # self-heal if timer_tasks.db was recreated
+    await create_all_for_bind(None)  # self-heal if the timer-tasks DB was recreated
     js = dict(action=action, task_id=task_id, task_result_id=task_result_id, url=str(request.url))
     try:
         await _xhr_dispatch(request, node, action, task_id, task_result_id, js)

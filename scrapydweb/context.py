@@ -70,8 +70,7 @@ def compute_features(settings, ctx, jobs_style, any_jobs, scheduler_state):
         F += 'T'
     else:
         F += 't'
-    if not SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
-        F += SQLALCHEMY_DATABASE_URI[:3]
+    F += SQLALCHEMY_DATABASE_URI[:3]
     return F
 
 

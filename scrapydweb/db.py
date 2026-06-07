@@ -10,15 +10,12 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
 
 from .models import Base, Metadata
 from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
 
 
 def _to_async_url(url):
-    if url.startswith('sqlite:///'):
-        return url.replace('sqlite:///', 'sqlite+aiosqlite:///', 1)
     if url.startswith('mysql://'):
         return url.replace('mysql://', 'mysql+asyncmy://', 1)
     if url.startswith('postgres://'):
@@ -29,14 +26,8 @@ def _to_async_url(url):
 
 
 def _engine_kwargs(url):
-    # sqlite: no connection pool. The files can be recreated underneath a running
-    # server (e.g. the test suite wipes *.db); a pooled connection would then point
-    # at the old inode and every write fails with SQLITE_READONLY_DBMOVED
-    # ("attempt to write a readonly database"). Opening by path per use is cheap.
-    # postgres/mysql: pre-ping so connections killed by the test-mode
+    # pre-ping so connections killed by the test-mode
     # DROP DATABASE ... WITH (FORCE) are replaced instead of erroring.
-    if url.startswith('sqlite'):
-        return {'poolclass': NullPool}
     return {'pool_pre_ping': True}
 
 
@@ -158,8 +149,8 @@ async def get_jobs_table(node, server):
     """Get (and create) the per-server Job table model + physical table (jobs bind).
 
     The physical table is ensured on EVERY call (create_all is checkfirst /
-    idempotent): the sqlite files can be wiped underneath a running server
-    (e.g. the test suite deletes *.db), so a created-once cache would leave
+    idempotent): the databases can be dropped underneath a running server
+    (e.g. the test suite recreates them), so a created-once cache would leave
     'no such table' errors behind.
     """
     if node in _jobs_tables:

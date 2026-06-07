@@ -16,9 +16,8 @@ from sqlalchemy.orm import DeclarativeBase, relationship
 
 from .vars import STATE_RUNNING
 
-# Postgres INTEGER is int32 (sqlite's is int64): ids/counters use BIGINT, with the
-# plain INTEGER variant on sqlite so rowid autoincrement keeps working there.
-BigInt = BigInteger().with_variant(Integer(), 'sqlite')
+# Postgres INTEGER is int32: ids/counters use BIGINT.
+BigInt = BigInteger()
 
 
 class Base(DeclarativeBase):
