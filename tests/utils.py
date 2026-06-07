@@ -15,7 +15,7 @@ from six import string_types
 
 from logparser import __version__ as logparser_version
 from scrapydweb.urls import url_for as _url_for
-from scrapydweb.vars import DATABASE_PATH, LEGAL_NAME_PATTERN, STATS_PATH, setup_logfile
+from scrapydweb.vars import DATABASE_PATH, setup_logfile
 
 
 # The app under test, set by the `app` fixture in conftest.py, so url_for() can be
@@ -115,7 +115,7 @@ def get_text(response):
 
 def req(app, client, view='', kws=None, url='', data=None,
         headers=None, content_type='multipart/form-data',
-        ins=None, nos=None, jskws=None, jskeys=None, location=None, mobileui=False,
+        ins=None, nos=None, jskws=None, jskeys=None, location=None,
         single_scrapyd=False, set_to_second=False, save=''):
     if single_scrapyd:
         set_single_scrapyd(app, set_to_second)
@@ -194,11 +194,6 @@ def req(app, client, view='', kws=None, url='', data=None,
                         assert k in js.keys()
                 elif jskeys:
                     raise TypeError("The argument 'jskeys' should be either a string or a list")
-
-            if mobileui:
-                assert 'Desktop version' in text
-            else:
-                assert 'Desktop version' not in text
         except:
             with io.open('response.html', 'wb') as f:
                 f.write(response.content)
@@ -270,19 +265,15 @@ def setup_env(custom_settings):
         os.remove(file)
         print("Removed %s" % file)
 
-    if os.path.isdir(STATS_PATH):
-        rmtree(STATS_PATH, ignore_errors=True)
-        print("rmtree %s" % STATS_PATH)
-
     setup_logfile(delete=True)
     print("setup_logfile(delete=True)")
 
-    if not custom_settings.get('LOCAL_SCRAPYD_LOGS_DIR', ''):
-        custom_settings['LOCAL_SCRAPYD_LOGS_DIR'] = os.path.join(os.path.expanduser('~'), 'logs')
-        print("Setting LOCAL_SCRAPYD_LOGS_DIR to: %s" % custom_settings['LOCAL_SCRAPYD_LOGS_DIR'])
-    local_scrapyd_logs_dir = custom_settings['LOCAL_SCRAPYD_LOGS_DIR']
+    # ~/logs is the SCRAPYD-side logs_dir (served over HTTP; the central stats
+    # collector and the files-browser tests read it through scrapyd)
+    local_scrapyd_logs_dir = os.environ.get('SCRAPYD_LOGS_DIR',
+                                            os.path.join(os.path.expanduser('~'), 'logs'))
     if not os.path.isdir(local_scrapyd_logs_dir):
-        sys.exit("custom_settings['LOCAL_SCRAPYD_LOGS_DIR'] not found: %s" % repr(local_scrapyd_logs_dir))
+        sys.exit("scrapyd logs dir not found: %s" % repr(local_scrapyd_logs_dir))
     else:
         logs_scrapydweb_demo = os.path.join(local_scrapyd_logs_dir, cst.PROJECT)
         if os.path.isdir(logs_scrapydweb_demo):
@@ -309,18 +300,13 @@ def setup_env(custom_settings):
         # 'finish_reason': 'finished',
         if filename == cst.DEMO_UNFINISHED_LOG:
             replace_file_content(dst, "'finish_reason'", "'finish_reason_removed'")
-    stats_json_path = os.path.join(local_scrapyd_logs_dir, 'stats.json')
-    demo_json_path = os.path.join(spider_path, cst.DEMO_JSON)
-    demo_unfinished_json_path = os.path.join(spider_path, cst.DEMO_UNFINISHED_JSON)
-    custom_settings['STATS_JSON_PATH'] = stats_json_path
-    custom_settings['DEMO_JSON_PATH'] = demo_json_path
-    custom_settings['DEMO_LOG_PATH'] = os.path.join(spider_path, cst.DEMO_LOG)
-    for path in [stats_json_path, demo_json_path, demo_unfinished_json_path]:
+    # remove leftover logparser artifacts from older runs
+    for path in [os.path.join(local_scrapyd_logs_dir, 'stats.json'),
+                 os.path.join(spider_path, cst.DEMO_JSON),
+                 os.path.join(spider_path, cst.DEMO_UNFINISHED_JSON)]:
         if os.path.exists(path):
             os.remove(path)
             print("Deleted: %s" % path)
-    node = re.sub(LEGAL_NAME_PATTERN, '-', re.sub(r'[.:]', '_', custom_settings['_SCRAPYD_SERVER']))
-    custom_settings['BACKUP_DEMO_JSON_PATH'] = os.path.join(STATS_PATH, node, cst.PROJECT, cst.SPIDER, cst.DEMO_JSON)
 
 
 def upload_file_deploy(app, client, filename, project, multinode=False,

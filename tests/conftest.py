@@ -19,7 +19,6 @@ custom_settings = dict(
     _SCRAPYD_SERVER='127.0.0.1:6800',
     _SCRAPYD_SERVER_AUTH=('admin', '12345'),  # Or None
 
-    LOCAL_SCRAPYD_LOGS_DIR='',  # For LogParser, defaults to the 'logs' directory that resides in current user directory
 
     SLACK_TOKEN=os.environ.get('SLACK_TOKEN', ''),
     TELEGRAM_TOKEN=os.environ.get('TELEGRAM_TOKEN', ''),
@@ -43,7 +42,6 @@ custom_settings = dict(
     SMTP_OVER_SSL_=False,
     SMTP_CONNECTION_TIMEOUT_=60,
 
-    ENABLE_MONITOR=os.environ.get('ENABLE_MONITOR', 'True') == 'True',
     ENABLE_SLACK_ALERT=os.environ.get('ENABLE_SLACK_ALERT', 'True') == 'True',
     ENABLE_TELEGRAM_ALERT=os.environ.get('ENABLE_TELEGRAM_ALERT', 'True') == 'True',
     ENABLE_EMAIL_ALERT=os.environ.get('ENABLE_EMAIL_ALERT', 'True') == 'True',
@@ -68,21 +66,15 @@ def app():
         TESTING=True,
         # SERVER_NAME='127.0.0.1:5000',  # http://flask.pocoo.org/docs/0.12/config/#builtin-configuration-values
 
-        DEFAULT_SETTINGS_PY_PATH='',
-        SCRAPYDWEB_SETTINGS_PY_PATH='',
         MAIN_PID=os.getpid(),
-        LOGPARSER_PID=0,
-        POLL_PID=0,
 
         SCRAPYD_SERVERS=SCRAPYD_SERVERS,
         _SCRAPYD_SERVERS=_SCRAPYD_SERVERS,
-        LOCAL_SCRAPYD_SERVER=custom_settings['_SCRAPYD_SERVER'],
         SCRAPYD_SERVERS_AUTHS=[custom_settings['_SCRAPYD_SERVER_AUTH'], ('username', '123456abcdef')],
         SCRAPYD_SERVERS_GROUPS=['', 'Scrapyd-group'],
         SCRAPY_PROJECTS_DIR=os.path.join(cst.ROOT_DIR, 'data'),
 
-        ENABLE_LOGPARSER=False,
-        LOGPARSER_PARSE_ROUND_INTERVAL=2,  # speed up tests: parse logs every 2s instead of the 10s default
+        STATS_COLLECT_INTERVAL=0,  # the suite invokes the collector explicitly
 
         ALERT_WORKING_DAYS=list(range(1, 8)),
         ALERT_WORKING_HOURS=list(range(24)),
@@ -104,7 +96,6 @@ def app():
             SCRAPYD_SERVERS_PUBLIC_URLS=[''] * len(SCRAPYD_SERVERS),
 
             DAEMONSTATUS_REFRESH_INTERVAL=app.config.get('DAEMONSTATUS_REFRESH_INTERVAL', 10),
-            ENABLE_AUTH=app.config.get('ENABLE_AUTH', False),
             SHOW_SCRAPYD_ITEMS=app.config.get('SHOW_SCRAPYD_ITEMS', True),
         )
     app.state.context_processors.append(inject_variable)
@@ -117,9 +108,24 @@ def app():
     yield app
 
 
+ADMIN_USER, ADMIN_PASS = 'admin', 'admin-test-pass'
+
+
+def authenticate(test_client):
+    """Create the admin on first use, then log in (session cookie persists)."""
+    me = test_client.get('/api/auth/me').json()
+    if me.get('setup_required'):
+        r = test_client.post('/api/auth/setup', json={'username': ADMIN_USER, 'password': ADMIN_PASS})
+        assert r.status_code == 200, r.text
+    elif not me.get('authenticated'):
+        r = test_client.post('/api/auth/login', json={'username': ADMIN_USER, 'password': ADMIN_PASS})
+        assert r.status_code == 200, r.text
+
+
 @pytest.fixture
 def client(app):
     # Starlette's sync TestClient drives the async ASGI app and runs lifespan
     # (DB init) on context entry. follow_redirects=False matches Flask's test client.
     with TestClient(app, follow_redirects=False) as test_client:
+        authenticate(test_client)
         yield test_client
