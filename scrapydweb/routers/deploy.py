@@ -16,14 +16,11 @@ import zipfile
 from configparser import Error as ScrapyCfgParseError
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
-from ..responses import redirect as _redirect
+from fastapi.responses import HTMLResponse, JSONResponse
 from werkzeug.utils import secure_filename
 
 from ..context import NodeContext, get_node_context
 from ..common import get_now_string, json_dumps
-from ..templating import render
-from ..urls import safe_url_for as u, url_for
 from ..vars import DEPLOY_PATH, LEGAL_NAME_PATTERN, STRICT_NAME_PATTERN
 from ..services.scrapyd_deploy import _build_egg, get_config
 from ..services.deploy_utils import mkdir_p, slot
@@ -42,10 +39,6 @@ project = projectname
 folder_project_dict = {}
 
 
-def _fail(ctx):
-    return 'scrapydweb/fail_mobileui.html' if ctx.USE_MOBILEUI else 'scrapydweb/fail.html'
-
-
 def _modification_time(path):
     files = []
     in_top = True
@@ -59,18 +52,10 @@ def _modification_time(path):
     return max([os.path.getmtime(f) for f in files] or [time.time()])
 
 
-async def deploy(request: Request, node: int, ctx: NodeContext = Depends(get_node_context)):
-    app = request.app
-    projects_dir = (app.state.settings.get('SCRAPY_PROJECTS_DIR', '')
-                    or app.state.settings.get('DEMO_PROJECTS_PATH', '')) or ''
+def scan_projects_dir(app):
+    """Scan SCRAPY_PROJECTS_DIR for deployable scrapy projects (shared with apiv2)."""
     from ..vars import DEMO_PROJECTS_PATH
     projects_dir = app.state.settings.get('SCRAPY_PROJECTS_DIR', '') or DEMO_PROJECTS_PATH
-
-    if request.method == 'POST':
-        form = await request.form()
-        selected_nodes = [n for n in range(1, ctx.SCRAPYD_SERVERS_AMOUNT + 1) if form.get(str(n)) == 'on']
-    else:
-        selected_nodes = []
 
     cfg_list = sorted(glob.glob(os.path.join(projects_dir, '*', 'scrapy.cfg')), key=lambda x: x.lower())
     project_paths = [os.path.dirname(i) for i in cfg_list]
@@ -92,16 +77,8 @@ async def deploy(request: Request, node: int, ctx: NodeContext = Depends(get_nod
             project = project or folders[idx]
             folder_project_dict[key] = project
         projects.append(project)
-
-    page = dict(
-        node=node, url='http://%s/addversion.json' % ctx.SCRAPYD_SERVER,
-        url_projects=u(app, "projects", node=node), selected_nodes=selected_nodes,
-        folders=folders, projects=projects, modification_times=modification_times,
-        latest_folder=latest_folder, SCRAPY_PROJECTS_DIR=projects_dir.replace('\\', '/'),
-        url_servers=u(app, 'servers', node=node, opt='deploy'),
-        url_deploy_upload=u(app, 'deploy.upload', node=node),
-    )
-    return render(request, 'scrapydweb/deploy.html', node, ctx, page=page)
+    return dict(projects_dir=projects_dir, folders=folders, projects=projects,
+                modification_times=modification_times, latest_folder=latest_folder)
 
 
 def _uncompress(filepath):
@@ -140,24 +117,175 @@ async def _addversion(client, server, auth, project, version, egg_bytes):
     return r.status_code, js
 
 
+
+def build_egg_from_cfg(cfg, eggname):
+    """Build an egg from a scrapy.cfg location. Returns (eggpath, error_dict|None)."""
+    eggpath = os.path.join(DEPLOY_PATH, eggname)
+    try:
+        egg, td = _build_egg(cfg)
+        copyfile(egg, os.path.join(os.path.dirname(cfg), eggname))
+        copyfile(egg, eggpath)
+        rmtree(td)
+    except ScrapyCfgParseError as err:
+        return None, dict(status='error', alert='Fail to deploy project:',
+                          text=str(err),
+                          tip="Check the content of the 'scrapy.cfg' file in your project directory. ",
+                          message="# The 'scrapy.cfg' file should be like:\n%s" % SCRAPY_CFG)
+    except CalledProcessError as err:
+        return None, dict(status='error', alert='Fail to deploy project:',
+                          text=str(err),
+                          tip='Check scrapy.cfg, or build the egg yourself. ',
+                          message="# The 'scrapy.cfg' file should be like:\n%s" % SCRAPY_CFG)
+    return eggpath, None
+
+
+def _node_targets(settings, nodes):
+    """Resolve node numbers to [(node, server, auth)], dropping out-of-range nodes."""
+    servers = settings.get('SCRAPYD_SERVERS', []) or []
+    auths = settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None] * len(servers)
+    targets = []
+    for n in nodes:
+        if 1 <= n <= len(servers):
+            auth = auths[n - 1] if n - 1 < len(auths) else None
+            targets.append((n, servers[n - 1], auth))
+    return targets
+
+
+async def deploy_egg_to_nodes(app, nodes, project, version, egg_bytes, eggname):
+    """Store the egg once, addversion to every target node concurrently.
+
+    Returns (overall, results, first_js): overall in ok|partial|error, results is
+    [{node, server, status, status_code, message}], first_js the raw addversion
+    response of the first target (legacy response shape).
+    """
+    import asyncio
+
+    eggpath = os.path.join(DEPLOY_PATH, eggname)
+    with open(eggpath, 'wb') as f:
+        f.write(egg_bytes)
+    slot.add_egg(eggname, egg_bytes)
+
+    targets = _node_targets(app.state.settings, nodes)
+    if not targets:
+        return 'error', [], dict(status='error', message='no valid target nodes: %s' % nodes)
+
+    responses = await asyncio.gather(*[
+        _addversion(app.state.http_client, server, auth, project, version, egg_bytes)
+        for _n, server, auth in targets])
+    results, ok_count = [], 0
+    for (n, server, _auth), (status_code, js) in zip(targets, responses):
+        ok = js.get('status') == OK
+        ok_count += ok
+        results.append(dict(node=n, server=server, status='ok' if ok else 'error',
+                            status_code=status_code, message=js.get('message', '')))
+    overall = 'ok' if ok_count == len(targets) else ('partial' if ok_count else 'error')
+    return overall, results, responses[0][1]
+
+
+async def record_deploy(source, project, version, eggname, status, results=None,
+                        actor=None, repo_id=None, message=''):
+    """Insert a DeployRecord audit row; returns its id (None on failure)."""
+    from ..db import SessionLocal
+    from ..models import DeployRecord
+    try:
+        async with SessionLocal() as s:
+            rec = DeployRecord(
+                source=source, project=project, version=version, eggname=eggname,
+                status=status, actor=actor, repo_id=repo_id, message=message or None,
+                results_json=json_dumps(results) if results is not None else None,
+                finished_at=None if status == 'pending' else datetime.now())
+            s.add(rec)
+            await s.commit()
+            return rec.id
+    except Exception as err:
+        import logging
+        logging.getLogger(__name__).warning('Fail to record deploy: %s', err)
+        return None
+
+
+async def finish_deploy_record(record_id, status, results=None, version=None,
+                               eggname=None, message=''):
+    """Finalize a pending DeployRecord (webhook deploys run in the background)."""
+    if record_id is None:
+        return
+    from sqlalchemy import select
+    from ..db import SessionLocal
+    from ..models import DeployRecord
+    try:
+        async with SessionLocal() as s:
+            rec = (await s.execute(
+                select(DeployRecord).filter_by(id=record_id))).scalar_one_or_none()
+            if rec is None:
+                return
+            rec.status = status
+            if results is not None:
+                rec.results_json = json_dumps(results)
+            if version:
+                rec.version = version
+            if eggname:
+                rec.eggname = eggname
+            if message:
+                rec.message = message
+            rec.finished_at = datetime.now()
+            await s.commit()
+    except Exception as err:
+        import logging
+        logging.getLogger(__name__).warning('Fail to finalize deploy record #%s: %s', record_id, err)
+
+
+async def actor_from_request(request):
+    """Username behind the session cookie, or None (token/webhook callers)."""
+    from sqlalchemy import select
+    from ..auth import SESSION_COOKIE, verify_session_token
+    from ..db import SessionLocal
+    from ..models import User
+    token = request.cookies.get(SESSION_COOKIE, '')
+    uid = verify_session_token(token, request.app.state.settings.get('SECRET_KEY', ''))
+    if uid is None:
+        return None
+    try:
+        async with SessionLocal() as s:
+            user = (await s.execute(select(User).filter_by(id=uid))).scalar_one_or_none()
+        return user.username if user else None
+    except Exception:
+        return None
+
+
+async def deploy_egg_bytes(app, server, auth, project, version, egg_bytes, eggname):
+    """Store + addversion an egg (single node). Returns the standard deploy JSON dict."""
+    eggpath = os.path.join(DEPLOY_PATH, eggname)
+    with open(eggpath, 'wb') as f:
+        f.write(egg_bytes)
+    slot.add_egg(eggname, egg_bytes)
+    status_code, js = await _addversion(app.state.http_client, server, auth,
+                                        project, version, egg_bytes)
+    if js['status'] != OK:
+        return dict(status='error', alert='Fail to deploy project, got status: ' + js['status'],
+                    js=js, message=js.get('message', ''))
+    return dict(status='ok', js=js, project=project, version=version,
+                eggname=eggname, selected_nodes=[], first_selected_node=0)
+
+
 async def deploy_upload(request: Request, node: int, ctx: NodeContext = Depends(get_node_context)):
     app = request.app
     settings = app.state.settings
-    servers = ctx.SCRAPYD_SERVERS
-    auths = settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
     form = await request.form()
 
     selected_amount = int(form.get('checked_amount') or 0)
-    if selected_amount:
+    nodes_field = (form.get('nodes') or '').strip()  # "1,3" -- SPA multi-node deploy
+    if nodes_field:
+        selected_nodes = sorted({int(n) for n in re.split(r'[,\s]+', nodes_field) if n.isdigit()})
+        selected_nodes = [n for n in selected_nodes if 1 <= n <= ctx.SCRAPYD_SERVERS_AMOUNT]
+        first = selected_nodes[0] if selected_nodes else node
+        target_nodes = selected_nodes or [node]
+    elif selected_amount:
         selected_nodes = [n for n in range(1, ctx.SCRAPYD_SERVERS_AMOUNT + 1) if form.get(str(n)) == 'on']
         first = selected_nodes[0]
-        target_server = servers[first - 1]
-        target_auth = auths[first - 1]
+        target_nodes = selected_nodes
     else:
         selected_nodes = []
         first = 0
-        target_server = ctx.SCRAPYD_SERVER
-        target_auth = ctx.AUTH
+        target_nodes = [node]
 
     project = re.sub(STRICT_NAME_PATTERN, '_', form.get('project', '') or '') or get_now_string()
     version = re.sub(LEGAL_NAME_PATTERN, '-', form.get('version', '') or '') or get_now_string()
@@ -178,7 +306,8 @@ async def deploy_upload(request: Request, node: int, ctx: NodeContext = Depends(
             filename = '%s_%s_from_file_%s' % (project, version, filename)
         content = await upfile.read()
         if filename.endswith('egg'):
-            eggname = filename
+            # canonical name: the code viewer resolves {project}_{version}.egg
+            eggname = '%s_%s.egg' % (project, version)
             eggpath = os.path.join(DEPLOY_PATH, eggname)
             with open(eggpath, 'wb') as f:
                 f.write(content)
@@ -192,7 +321,7 @@ async def deploy_upload(request: Request, node: int, ctx: NodeContext = Depends(
             if not cfg:
                 scrapy_cfg_not_found = True
             else:
-                eggname = re.sub(r'(\.zip|\.tar\.gz)$', '.egg', filename)
+                eggname = '%s_%s.egg' % (project, version)
                 eggpath = os.path.join(DEPLOY_PATH, eggname)
                 try:
                     egg, td = _build_egg(cfg)
@@ -205,7 +334,8 @@ async def deploy_upload(request: Request, node: int, ctx: NodeContext = Depends(
                     build_egg_error = str(err)
     else:
         folder = form.get('folder', '')
-        projects_dir = settings.get('SCRAPY_PROJECTS_DIR', '')
+        from ..vars import DEMO_PROJECTS_PATH
+        projects_dir = settings.get('SCRAPY_PROJECTS_DIR', '') or DEMO_PROJECTS_PATH
         project_path = os.path.join(projects_dir, folder)
         cfg = _search_scrapy_cfg(project_path)
         searched.append(project_path)
@@ -239,37 +369,27 @@ async def deploy_upload(request: Request, node: int, ctx: NodeContext = Depends(
             tip = ("Check the content of the 'scrapy.cfg' file in your project directory. "
                    "Or build the egg file by yourself instead. ")
             message = "# The 'scrapy.cfg' file in your project directory should be like:\n%s" % SCRAPY_CFG
-        return render(request, _fail(ctx), node, ctx,
-                      page=dict(node=node, alert=alert, text=text, tip=tip, message=message))
+        return JSONResponse(dict(status='error', alert=alert, text=text, tip=tip, message=message))
 
     with io.open(eggpath, 'rb') as f:
         content = f.read()
-    slot.add_egg(eggname, content)
-    status_code, js = await _addversion(app.state.http_client, target_server, target_auth, project, version, content)
+    overall, results, first_js = await deploy_egg_to_nodes(
+        app, target_nodes, project, version, content, eggname)
+    source = 'file' if (upfile and getattr(upfile, 'filename', '')) else 'folder'
+    await record_deploy(source, project, version, eggname, overall, results=results,
+                        actor=await actor_from_request(request))
 
-    if js['status'] != OK:
-        if selected_amount > 1:
-            alert = "Multinode deployment terminated, since the first selected node returned status: " + js['status']
+    if overall == 'error':
+        if len(target_nodes) > 1:
+            alert = "Multinode deployment failed on every node, first node returned status: " + first_js['status']
         else:
-            alert = "Fail to deploy project, got status: " + js['status']
-        message = js.get('message', '')
-        if message:
-            js['message'] = 'See details below'
-        return render(request, _fail(ctx), node, ctx,
-                      page=dict(node=node, alert=alert, text=json_dumps(js), message=message))
+            alert = "Fail to deploy project, got status: " + first_js['status']
+        return JSONResponse(dict(status='error', alert=alert, js=first_js,
+                                 message=first_js.get('message', ''), results=results))
 
-    if selected_amount == 0:
-        return _redirect(url_for(app, 'schedule', node=node, project=project, version=version))
-    page = dict(
-        node=node, selected_nodes=selected_nodes, first_selected_node=first, js=js,
-        project=project, version=version,
-        url_projects_first_selected_node=u(app, 'projects', node=first),
-        url_projects_list=[u(app, 'projects', node=n) for n in range(1, ctx.SCRAPYD_SERVERS_AMOUNT + 1)],
-        url_xhr=u(app, 'deploy.xhr', node=node, eggname=eggname, project=project, version=version),
-        url_schedule=u(app, 'schedule', node=node, project=project, version=version),
-        url_servers=u(app, 'servers', node=node, opt='schedule', project=project, version_job=version),
-    )
-    return render(request, 'scrapydweb/deploy_results.html', node, ctx, page=page)
+    return JSONResponse(dict(status='ok', overall=overall, js=first_js, project=project,
+                             version=version, eggname=eggname, selected_nodes=selected_nodes,
+                             first_selected_node=first, results=results))
 
 
 async def deploy_xhr(request: Request, node: int, eggname: str, project: str, version: str,
@@ -284,7 +404,6 @@ async def deploy_xhr(request: Request, node: int, eggname: str, project: str, ve
     return JSONResponse(js)
 
 
-router.add_api_route('/{node:int}/deploy/', deploy, methods=['GET', 'POST'], name='deploy')
 router.add_api_route('/{node:int}/deploy/upload/', deploy_upload, methods=['POST'], name='deploy.upload')
 router.add_api_route('/{node:int}/deploy/xhr/{eggname}/{project}/{version}/', deploy_xhr,
                      methods=['GET', 'POST'], name='deploy.xhr')
