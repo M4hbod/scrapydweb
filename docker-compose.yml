@@ -1,0 +1,61 @@
+name: scrapydweb
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scrapydweb
+      POSTGRES_PASSWORD: scrapydweb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # published so local `just dev` / `just test` reach it too
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scrapydweb"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  scrapyd:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.scrapyd
+    # host networking: scrapy's telnet consoles bind 127.0.0.1 inside the netns, so
+    # port-publishing can never reach them -- on the host netns scrapyd behaves exactly
+    # like a locally-run one (6800 + telnet 6023+ on localhost).
+    network_mode: host
+    volumes:
+      # bind the host logs dir so scrapy logs survive container rebuilds
+      - ${SCRAPYD_LOGS_DIR:-${HOME}/logs}:/scrapyd/logs
+      - scrapyd-eggs:/scrapyd/eggs
+      - scrapyd-dbs:/scrapyd/dbs
+      - scrapyd-items:/scrapyd/items
+
+  scrapydweb:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      scrapyd:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # scrapyd runs on the host netns
+    environment:
+      DATABASE_URL: postgres://scrapydweb:scrapydweb@postgres:5432
+      # env vars below are SEEDS: anything edited in the web UI (Settings page)
+      # is persisted to postgres and takes precedence over these on next boot
+      SCRAPYD_SERVERS: admin:12345@host.docker.internal:6800
+      CHECK_APP_CONFIG: "true"
+      ENABLE_SLACK_ALERT: "false"
+      ENABLE_TELEGRAM_ALERT: "false"
+      ENABLE_EMAIL_ALERT: "false"
+
+volumes:
+  pgdata:
+  scrapyd-eggs:
+  scrapyd-dbs:
+  scrapyd-items:
