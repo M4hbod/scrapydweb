@@ -1,27 +1,30 @@
 # coding: utf-8
-"""Router registration. Each area gets its own module under this package."""
+"""Router registration.
+
+The UI is the React SPA served from frontend/dist (see app.py). What remains
+here is the JSON surface:
+- apiv2: /api/... endpoints the SPA reads from
+- api: the legacy scrapyd JSON proxy (/{node}/api/{opt}/...) used for actions
+- tasks/schedule/deploy xhr + run/check/upload endpoints (JSON)
+- log: stats/utf8/report JSON (also polled by the monitor subprocess)
+- alerts (test sends), metadata
+"""
 
 
 def register_routers(app):
-    # Routers are added here phase by phase during the FastAPI migration.
-    from . import (api, clusterreports, index, items, jobs, logs, metadata,
-                   multinode, nodereports, projects, servers, settings)
-    app.include_router(index.router)
+    from . import api, auth, metadata, settings
+    app.include_router(auth.router)
     app.include_router(metadata.router)
-    app.include_router(api.router)
     app.include_router(settings.router)
-    app.include_router(servers.router)
-    app.include_router(jobs.router)
-    app.include_router(nodereports.router)
-    app.include_router(clusterreports.router)
-    app.include_router(multinode.router)
-    app.include_router(projects.router)
-    app.include_router(logs.router)
-    app.include_router(items.router)
-    from . import deploy, log, parse, schedule, send_text, tasks
+    app.include_router(api.router)
+    from . import alerts, deploy, deploy_ci, log, schedule, tasks, webhooks
     app.include_router(log.router)
-    app.include_router(send_text.router)
-    app.include_router(parse.router)
+    app.include_router(alerts.router)
     app.include_router(deploy.router)
+    app.include_router(deploy_ci.router)
+    app.include_router(webhooks.router)
     app.include_router(schedule.router)
     app.include_router(tasks.router)
+    # JSON API for the React (shadcn) frontend
+    from . import apiv2
+    app.include_router(apiv2.router)
