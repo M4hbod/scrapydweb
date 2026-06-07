@@ -1,0 +1,109 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ScrapydWeb ops-console theme (dark-only) -- ported from the approved concept:
+ * bg #0B1120 / surface #121b2e / accent #22C55E / Fira Code + Fira Sans */
+:root {
+  --radius: 0.65rem;
+
+  --background: #0b1120;
+  --foreground: #f8fafc;
+  --card: #121b2e;
+  --card-foreground: #f8fafc;
+  --popover: #161f33;
+  --popover-foreground: #f8fafc;
+  --primary: #22c55e;
+  --primary-foreground: #04130a;
+  --secondary: #161f33;
+  --secondary-foreground: #f8fafc;
+  --muted: #1b2740;
+  --muted-foreground: #94a3b8;
+  --accent: #16331f;
+  --accent-foreground: #4ade80;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #23304b;
+  --input: #23304b;
+  --ring: #22c55e;
+
+  --chart-1: #22c55e;
+  --chart-2: #38bdf8;
+  --chart-3: #f59e0b;
+  --chart-4: #a78bfa;
+  --chart-5: #ef4444;
+
+  --sidebar: #0f172a;
+  --sidebar-foreground: #94a3b8;
+  --sidebar-primary: #22c55e;
+  --sidebar-primary-foreground: #04130a;
+  --sidebar-accent: #16331f;
+  --sidebar-accent-foreground: #4ade80;
+  --sidebar-border: #1b2740;
+  --sidebar-ring: #22c55e;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: "Fira Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    /* reserve the scrollbar gutter so pages with/without overflow don't shift */
+    scrollbar-gutter: stable;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(34, 197, 94, 0.08), transparent 60%),
+      radial-gradient(900px 500px at -5% 10%, rgba(56, 189, 248, 0.06), transparent 55%),
+      radial-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    background-size: auto, auto, 22px 22px;
+    background-attachment: fixed;
+  }
+}
