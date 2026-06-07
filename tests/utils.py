@@ -15,7 +15,7 @@ from six import string_types
 
 from logparser import __version__ as logparser_version
 from scrapydweb.urls import url_for as _url_for
-from scrapydweb.vars import DATABASE_PATH, setup_logfile
+from scrapydweb.vars import setup_logfile
 
 
 # The app under test, set by the `app` fixture in conftest.py, so url_for() can be
@@ -261,10 +261,6 @@ def replace_file_content(filepath, old, new):
 
 
 def setup_env(custom_settings):
-    for file in glob.glob(os.path.join(DATABASE_PATH, '*.db')):
-        os.remove(file)
-        print("Removed %s" % file)
-
     setup_logfile(delete=True)
     print("setup_logfile(delete=True)")
 

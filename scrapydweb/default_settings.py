@@ -345,13 +345,9 @@ VERBOSE = False
 # e.g. 'C:/Users/username/scrapydweb_data' or '/home/username/scrapydweb_data'
 DATA_PATH = os.environ.get('DATA_PATH', '')
 
-# The default is '', which means saving data of Jobs and Timer Tasks in DATA_PATH using SQLite.
-# The data could be also saved in MySQL or PostgreSQL backend in order to improve concurrency.
-# To use MySQL backend, run command: pip install --upgrade pymysql
-# To use PostgreSQL backend, run command: pip install --upgrade psycopg2
+# REQUIRED: PostgreSQL (or MySQL) server holding all program data
+# (jobs, timer tasks, metadata, APScheduler jobstore).
 # e.g.
-# 'mysql://username:password@127.0.0.1:3306'
 # 'postgresql://username:password@127.0.0.1:5432'
-# 'sqlite:///C:/Users/username'
-# 'sqlite:////home/username'
+# 'mysql://username:password@127.0.0.1:3306'  (needs: pip install pymysql asyncmy)
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
