@@ -70,7 +70,7 @@ async def call_api(request, ctx, opt, project=None, version_spider_job=None):
         status_code, js = await request_scrapyd(client, url, data=data, auth=ctx.AUTH, as_json=True, timeout=timeout)
         if times != 1:
             js['times'] = times
-            await asyncio.sleep(2)
+            await asyncio.sleep(0 if request.app.state.settings.get('TESTING') else 2)
     return _handle_result(js, status_code, opt, project, version_spider_job, ctx.SCRAPYD_SERVER)
 
 

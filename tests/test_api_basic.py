@@ -21,13 +21,13 @@ def test_spa_index_served(client):
         assert '<div id="root">' in r.text, path
 
 
-def test_nodes(client):
+def test_nodes(app, client):
     js = client.get('/api/nodes').json()
     nodes = js['nodes']
     assert len(nodes) == 2
     assert nodes[0]['node'] == 1
     assert cst.PROJECT not in nodes[0]['server']  # server string, not project
-    assert '6800' in nodes[0]['server']
+    assert nodes[0]['server'] == app.config['SCRAPYD_SERVERS'][0]
 
 
 def test_dashboard(client):
@@ -130,8 +130,10 @@ def test_settings_restart_flag(client):
 
 
 def test_settings_servers_structured_put(app, client):
+    # __secret__ resolves against the existing auth keyed by host:port of node 1
+    host, _, port = app.config['SCRAPYD_SERVERS'][0].partition(':')
     rows = [
-        {'host': '127.0.0.1', 'port': 6800, 'username': 'admin', 'password': '__secret__',
+        {'host': host, 'port': int(port), 'username': 'admin', 'password': '__secret__',
          'group': '', 'public_url': ''},
         {'host': '127.0.0.2', 'port': 6801, 'username': '', 'password': '', 'group': 'g2',
          'public_url': ''},

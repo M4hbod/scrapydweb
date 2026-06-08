@@ -76,10 +76,20 @@ scrapyd:
 # SCRAPYDWEB_TESTMODE drops + recreates the 4 postgres DBs once per session.
 # The dockerized app is stopped first: its logparser/poll/metadata writes would race
 # the suite over the shared postgres DBs and ~/logs/stats.json. `just up` restarts it.
-# Pass extra pytest args: `just test tests/test_api.py -x`
+# Fast suite (in-process fake scrapyd; needs only postgres). Extra args: `just test tests/test_x.py`
 test *args:
     -docker compose stop scrapydweb 2>/dev/null
-    SCRAPYDWEB_TESTMODE=True uv run pytest {{ if args == "" { "tests/" } else { args } }} -q -p no:cacheprovider
+    SCRAPYDWEB_TESTMODE=True uv run pytest -m "not live" {{ if args == "" { "tests/" } else { args } }} -q
+
+# Full suite incl. live-scrapyd integration tests (needs `just infra` or `just scrapyd`)
+test-live *args:
+    -docker compose stop scrapydweb 2>/dev/null
+    SCRAPYDWEB_TESTMODE=True uv run pytest {{ if args == "" { "tests/" } else { args } }} -q
+
+# Coverage report for the fast suite (no gate)
+cov:
+    -docker compose stop scrapydweb 2>/dev/null
+    SCRAPYDWEB_TESTMODE=True uv run pytest -m "not live" tests/ -q --cov=scrapydweb --cov-report=term-missing
 
 # Install the React frontend toolchain (Node, in frontend/)
 ui-install:

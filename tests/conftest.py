@@ -7,19 +7,11 @@ from starlette.testclient import TestClient
 
 from scrapydweb import create_app
 from tests import utils
-from tests.utils import cst, setup_env
+from tests.fake_scrapyd import FakeScrapyd
+from tests.utils import cst, extract_test_data
 
 
-# Win10 Python2 Scrapyd error: environment can only contain strings
-# https://github.com/scrapy/scrapyd/issues/231
-
-
-# MUST be updated: _SCRAPYD_SERVER and _SCRAPYD_SERVER_AUTH
 custom_settings = dict(
-    _SCRAPYD_SERVER='127.0.0.1:6800',
-    _SCRAPYD_SERVER_AUTH=('admin', '12345'),  # Or None
-
-
     SLACK_TOKEN=os.environ.get('SLACK_TOKEN', ''),
     TELEGRAM_TOKEN=os.environ.get('TELEGRAM_TOKEN', ''),
     TELEGRAM_CHAT_ID=int(os.environ.get('TELEGRAM_CHAT_ID', 0)),
@@ -33,44 +25,31 @@ custom_settings = dict(
     SMTP_OVER_SSL=True,
     SMTP_CONNECTION_TIMEOUT=60,
 
-    EMAIL_USERNAME_=os.environ.get('EMAIL_USERNAME_', 'username@139.com'),
-    EMAIL_PASSWORD_=os.environ.get('EMAIL_PASSWORD_', ''),  # Used in test_check_email_with_ssl_false()
-    EMAIL_SENDER_=os.environ.get('EMAIL_SENDER_', 'username@139.com'),
-    EMAIL_RECIPIENTS_=[os.environ.get('EMAIL_RECIPIENT_', 'username@139.com')],
-    SMTP_SERVER_=os.environ.get('SMTP_SERVER_', 'smtp.139.com'),
-    SMTP_PORT_=25,
-    SMTP_OVER_SSL_=False,
-    SMTP_CONNECTION_TIMEOUT_=60,
-
     ENABLE_SLACK_ALERT=os.environ.get('ENABLE_SLACK_ALERT', 'True') == 'True',
     ENABLE_TELEGRAM_ALERT=os.environ.get('ENABLE_TELEGRAM_ALERT', 'True') == 'True',
     ENABLE_EMAIL_ALERT=os.environ.get('ENABLE_EMAIL_ALERT', 'True') == 'True',
 )
 
+extract_test_data()
 
-setup_env(custom_settings)
 
-
-@pytest.fixture
-def app():
+def make_app(scrapyd_server, scrapyd_auth, extra=None):
+    """Build the test app config for one real node + the unreachable fake-domain node."""
     fake_server = 'scrapydweb-fake-domain.com:443'
-    SCRAPYD_SERVERS = [custom_settings['_SCRAPYD_SERVER'], fake_server]
-    if custom_settings['_SCRAPYD_SERVER_AUTH']:
-        username, password = custom_settings['_SCRAPYD_SERVER_AUTH']
-        authed_server = '%s:%s@%s' % (username, password, custom_settings['_SCRAPYD_SERVER'])
+    SCRAPYD_SERVERS = [scrapyd_server, fake_server]
+    if scrapyd_auth:
+        authed_server = '%s:%s@%s' % (scrapyd_auth[0], scrapyd_auth[1], scrapyd_server)
         _SCRAPYD_SERVERS = [authed_server, fake_server]
     else:
         _SCRAPYD_SERVERS = SCRAPYD_SERVERS
 
     config = dict(
         TESTING=True,
-        # SERVER_NAME='127.0.0.1:5000',  # http://flask.pocoo.org/docs/0.12/config/#builtin-configuration-values
-
         MAIN_PID=os.getpid(),
 
         SCRAPYD_SERVERS=SCRAPYD_SERVERS,
         _SCRAPYD_SERVERS=_SCRAPYD_SERVERS,
-        SCRAPYD_SERVERS_AUTHS=[custom_settings['_SCRAPYD_SERVER_AUTH'], ('username', '123456abcdef')],
+        SCRAPYD_SERVERS_AUTHS=[scrapyd_auth, ('username', '123456abcdef')],
         SCRAPYD_SERVERS_GROUPS=['', 'Scrapyd-group'],
         SCRAPY_PROJECTS_DIR=os.path.join(cst.ROOT_DIR, 'data'),
 
@@ -81,8 +60,9 @@ def app():
 
         VERBOSE=True,
     )
-
     config.update(custom_settings)
+    if extra:
+        config.update(extra)
 
     app = create_app(config)
 
@@ -104,8 +84,38 @@ def app():
     # and keep `with app.test_request_context():` working as a no-op in legacy test bodies.
     utils.set_app(app)
     app.test_request_context = lambda *a, **k: nullcontext()
+    return app
 
-    yield app
+
+@pytest.fixture(scope='session')
+def fake_scrapyd():
+    """In-process fake scrapyd (uvicorn daemon thread, random port)."""
+    fs = FakeScrapyd().start()
+    yield fs
+    fs.stop()
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _migrate_once():
+    """Run alembic on the first create_app only; later apps skip it (schema is fixed)."""
+    import scrapydweb.db as db
+    real = db._run_db_migrations
+    done = {}
+
+    def once():
+        if not done:
+            real()
+            done['x'] = True
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(db, '_run_db_migrations', once)
+    yield
+    mp.undo()
+
+
+@pytest.fixture
+def app(fake_scrapyd):
+    yield make_app(fake_scrapyd.address, ('admin', '12345'))
 
 
 ADMIN_USER, ADMIN_PASS = 'admin', 'admin-test-pass'
