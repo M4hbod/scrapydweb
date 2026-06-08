@@ -16,13 +16,9 @@ app = create_app()
 if _env_bool('CHECK_APP_CONFIG'):
     # check_app_config touches the metadata table, but tables are normally created in
     # the app lifespan (which runs AFTER import) -- create them sync, first.
-    from scrapydweb.db import _tables_for_bind
-    from scrapydweb.db_sync import sync_engines
+    from scrapydweb.db_sync import sync_engine
     from scrapydweb.models import Base
-    for _bind in (None, 'metadata', 'jobs'):
-        _tables = _tables_for_bind(_bind)
-        if _tables:
-            Base.metadata.create_all(sync_engines[_bind], tables=_tables, checkfirst=True)
+    Base.metadata.create_all(sync_engine, checkfirst=True)
 
     from scrapydweb.common import handle_metadata
     from scrapydweb.utils.check_app_config import check_app_config

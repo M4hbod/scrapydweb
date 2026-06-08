@@ -354,8 +354,8 @@ async def api_cron_preview(request: Request):
 # ------------------------------------------------------------------ tasks
 @router.get('/{node:int}/tasks/', name='api.tasks')
 async def api_tasks(request: Request, node: int, page: int = 1, per_page: int = 100):
-    from ..db import create_all_for_bind
-    await create_all_for_bind(None)
+    from ..db import ensure_tables
+    await ensure_tables()
     out = []
     async with SessionLocal() as session:
         total = (await session.execute(select(func.count()).select_from(Task))).scalar()

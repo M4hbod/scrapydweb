@@ -19,9 +19,9 @@ from ..scheduler import scheduler
 from ..settings_registry import (BOOTSTRAP_KEYS, GROUPS, REGISTRY,
                                  SECRET_SENTINEL, default_for)
 from ..settings_store import delete_db_settings, get_db_settings, set_db_settings
-from ..vars import (APSCHEDULER_DATABASE_URI, DATA_PATH, PYTHON_VERSION,
+from ..vars import (DATA_PATH, PYTHON_VERSION,
                     SCHEDULER_STATE_DICT, SCRAPY_VERSION, SCRAPYD_VERSION,
-                    SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI)
+                    SQLALCHEMY_DATABASE_URI)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/settings')
@@ -96,9 +96,6 @@ async def settings_schema(request: Request):
         URL_SCRAPYDWEB=s.get('URL_SCRAPYDWEB', meta.get('url_scrapydweb', '')),
         databases=dict(
             default=hide_account(SQLALCHEMY_DATABASE_URI),
-            metadata=hide_account(SQLALCHEMY_BINDS['metadata']),
-            jobs=hide_account(SQLALCHEMY_BINDS['jobs']),
-            apscheduler=hide_account(APSCHEDULER_DATABASE_URI),
         ),
     )
 

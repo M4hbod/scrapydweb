@@ -110,10 +110,9 @@ def create_app(test_config=None):
         sources.update({k: 'test' for k in test_config})
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    # DB URIs live in vars (module constants); expose on settings for the settings page / tests.
-    from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
+    # DB URI lives in vars (module constant); expose on settings for the settings page / tests.
+    from .vars import SQLALCHEMY_DATABASE_URI
     settings.setdefault('SQLALCHEMY_DATABASE_URI', SQLALCHEMY_DATABASE_URI)
-    settings.setdefault('SQLALCHEMY_BINDS', SQLALCHEMY_BINDS)
 
     # derive SCRAPYD_SERVERS_* lists whenever pre-parsed lists were not injected
     # (conftest passes _AUTHS/_GROUPS explicitly). Covers env/db AND the

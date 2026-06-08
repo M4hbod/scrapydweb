@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sqlalchemy import and_, func, select
 
 
-from ..db import Pagination, SessionLocal, create_all_for_bind, get_metadata, set_metadata
+from ..db import Pagination, SessionLocal, ensure_tables, get_metadata, set_metadata
 from ..models import Task, TaskJobResult, TaskResult
 from ..scheduler import STATE_PAUSED, STATE_RUNNING, safe_get_jobs, scheduler
 from ..urls import safe_url_for as u
@@ -45,7 +45,7 @@ async def _paginate(session, stmt_count, stmt_items, page, per_page):
 
 async def tasks_xhr(request: Request, node: int, action: str, task_id: int = None, task_result_id: int = None):
     # DB/scheduler only -- no node context needed (works with zero servers)
-    await create_all_for_bind(None)  # self-heal if the timer-tasks DB was recreated
+    await ensure_tables()  # self-heal if the DB was recreated
     js = dict(action=action, task_id=task_id, task_result_id=task_result_id, url=str(request.url))
     try:
         await _xhr_dispatch(request, node, action, task_id, task_result_id, js)

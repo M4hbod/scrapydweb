@@ -53,9 +53,10 @@ for path in [DATA_PATH, DEMO_PROJECTS_PATH, DEPLOY_PATH,
 RUN_SPIDER_HISTORY_LOG = os.path.join(HISTORY_LOG, 'run_spider_history.log')
 TIMER_TASKS_HISTORY_LOG = os.path.join(HISTORY_LOG, 'timer_tasks_history.log')
 
-# For database (PostgreSQL or MySQL -- a server backend is required)
+# For database (PostgreSQL or MySQL -- a server backend is required).
+# Everything lives in one database: app tables + APScheduler jobstore.
 DATABASE_URL = default_database_url
-APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS = setup_database(DATABASE_URL)
+SQLALCHEMY_DATABASE_URI = setup_database(DATABASE_URL)
 
 # For check_app_config() and BaseView
 ALLOWED_SCRAPYD_LOG_EXTENSIONS = ['.log', '.log.gz', '.txt', '.gz', '']
