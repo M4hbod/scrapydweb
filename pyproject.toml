@@ -55,6 +55,7 @@ scrapydweb = "scrapydweb.run:main"
 test = [
     "pytest",
     "pytest-asyncio>=0.23",
+    "pytest-cov",
     "scrapy<2.13",
     "scrapyd",
     "Twisted<25",
@@ -73,3 +74,12 @@ exclude = ["tests*"]
 [tool.setuptools]
 include-package-data = true
 zip-safe = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+addopts = "-p no:cacheprovider"
+markers = [
+    "live: requires a real scrapyd on 127.0.0.1:6800 (just infra / just scrapyd)",
+    "git: shells out to git (fast, local file:// repos)",
+]

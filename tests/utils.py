@@ -260,28 +260,28 @@ def replace_file_content(filepath, old, new):
         print("replace %s to %s in %s" % (old, new, filepath))
 
 
-def setup_env(custom_settings):
+def extract_test_data():
+    """Fast-suite setup: fresh tests/data from data.zip + clean logfile."""
     setup_logfile(delete=True)
     print("setup_logfile(delete=True)")
-
-    # ~/logs is the SCRAPYD-side logs_dir (served over HTTP; the central stats
-    # collector and the files-browser tests read it through scrapyd)
-    local_scrapyd_logs_dir = os.environ.get('SCRAPYD_LOGS_DIR',
-                                            os.path.join(os.path.expanduser('~'), 'logs'))
-    if not os.path.isdir(local_scrapyd_logs_dir):
-        sys.exit("scrapyd logs dir not found: %s" % repr(local_scrapyd_logs_dir))
-    else:
-        logs_scrapydweb_demo = os.path.join(local_scrapyd_logs_dir, cst.PROJECT)
-        if os.path.isdir(logs_scrapydweb_demo):
-            rmtree(logs_scrapydweb_demo, ignore_errors=True)
-            print("rmtree %s" % logs_scrapydweb_demo)
 
     data_folder = os.path.join(cst.ROOT_DIR, 'data')
     if os.path.isdir(data_folder):
         rmtree(data_folder, ignore_errors=True)
-    sleep(3)
     with zipfile.ZipFile(os.path.join(cst.ROOT_DIR, 'data.zip'), 'r') as f:
         f.extractall(cst.ROOT_DIR)
+
+
+def setup_scrapyd_logs():
+    """Live-suite setup: seed the REAL scrapyd's logs_dir (~/logs) with demo logs."""
+    local_scrapyd_logs_dir = os.environ.get('SCRAPYD_LOGS_DIR',
+                                            os.path.join(os.path.expanduser('~'), 'logs'))
+    if not os.path.isdir(local_scrapyd_logs_dir):
+        sys.exit("scrapyd logs dir not found: %s" % repr(local_scrapyd_logs_dir))
+    logs_scrapydweb_demo = os.path.join(local_scrapyd_logs_dir, cst.PROJECT)
+    if os.path.isdir(logs_scrapydweb_demo):
+        rmtree(logs_scrapydweb_demo, ignore_errors=True)
+        print("rmtree %s" % logs_scrapydweb_demo)
 
     project_path = os.path.join(local_scrapyd_logs_dir, cst.PROJECT)
     spider_path = os.path.join(project_path, cst.SPIDER)
@@ -303,6 +303,10 @@ def setup_env(custom_settings):
         if os.path.exists(path):
             os.remove(path)
             print("Deleted: %s" % path)
+
+
+def setup_env(custom_settings):
+    extract_test_data()
 
 
 def upload_file_deploy(app, client, filename, project, multinode=False,
