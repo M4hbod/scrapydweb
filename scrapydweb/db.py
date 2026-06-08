@@ -81,7 +81,23 @@ async def create_all_for_bind(bind_key):
         await conn.run_sync(Base.metadata.create_all, tables=tables)
 
 
+def _run_db_migrations():
+    """alembic upgrade head across all three databases (sync; run in a thread)."""
+    import os
+
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option('script_location', os.path.join(os.path.dirname(__file__), 'migrations'))
+    cfg.set_main_option('databases', 'timer_tasks, metadata, jobs')
+    command.upgrade(cfg, 'head')
+
+
 async def init_db():
+    # Migrations already ran synchronously in create_app(). The checkfirst
+    # create_all stays for runtime-only tables (per-server job tables) and
+    # self-healing after test-mode database drops.
     for bind_key in (None, 'metadata', 'jobs'):
         await create_all_for_bind(bind_key)
 

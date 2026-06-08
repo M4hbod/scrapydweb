@@ -69,6 +69,11 @@ async def lifespan(app):
 
 
 def create_app(test_config=None):
+    # Bring the databases to the current schema before anything reads them
+    # (the settings overlay below touches the 'setting' table).
+    from .db import _run_db_migrations
+    _run_db_migrations()
+
     # Layered settings: defaults < env overlays < DB-persisted (UI edits) < test overrides.
     from .settings import env_overrides
     from .settings_registry import EXTRA_DB_KEYS, REGISTRY, coerce
