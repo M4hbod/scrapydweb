@@ -57,6 +57,14 @@ run:
 dev port="5000":
     uv run uvicorn scrapydweb.asgi:app --reload --host 127.0.0.1 --port {{port}}
 
+# Apply pending DB migrations (also runs automatically at app startup)
+migrate:
+    uv run alembic upgrade head
+
+# Autogenerate a migration from model changes: just revision m="add foo column"
+revision m:
+    uv run alembic revision --autogenerate -m "{{m}}"
+
 # Start a local Scrapyd for the test suite (foreground; Ctrl-C to stop)
 scrapyd:
     mkdir -p {{scrapyd_dir}} {{logs_dir}}

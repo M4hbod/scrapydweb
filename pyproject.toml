@@ -30,6 +30,7 @@ dependencies = [
     "ptyprocess>=0.6",
     "pytz>=2018.9",
     "six>=1.16",
+    "alembic>=1.16.5",
 ]
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
