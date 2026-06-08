@@ -29,9 +29,9 @@ def handle_metadata(key=None, value=None):
     from sqlalchemy.orm import sessionmaker
     from .__version__ import __version__
     from .models import Metadata
-    from .vars import SQLALCHEMY_BINDS
+    from .vars import SQLALCHEMY_DATABASE_URI
 
-    engine = create_engine(SQLALCHEMY_BINDS['metadata'])
+    engine = create_engine(SQLALCHEMY_DATABASE_URI)
     s = sessionmaker(bind=engine)()
     try:
         metadata = s.query(Metadata).filter_by(version=__version__).first()

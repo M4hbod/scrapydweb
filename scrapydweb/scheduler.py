@@ -15,7 +15,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_PAUSED, STATE_RUNNING, STATE_STOPPED
 
-from .vars import APSCHEDULER_DATABASE_URI, TIMER_TASKS_HISTORY_LOG
+from .vars import SQLALCHEMY_DATABASE_URI, TIMER_TASKS_HISTORY_LOG
 
 apscheduler_logger = logging.getLogger('apscheduler')
 _handler = logging.FileHandler(TIMER_TASKS_HISTORY_LOG, mode='a', encoding='utf-8')
@@ -26,7 +26,7 @@ apscheduler_logger.addHandler(_handler)
 EVENT_MAP = {EVENT_JOB_MAX_INSTANCES: 'EVENT_JOB_MAX_INSTANCES', EVENT_JOB_REMOVED: 'EVENT_JOB_REMOVED'}
 
 jobstores = {
-    'default': SQLAlchemyJobStore(url=APSCHEDULER_DATABASE_URI),
+    'default': SQLAlchemyJobStore(url=SQLALCHEMY_DATABASE_URI),
     'memory': MemoryJobStore(),
 }
 executors = {'default': ThreadPoolExecutor(20)}

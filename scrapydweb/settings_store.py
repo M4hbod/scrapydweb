@@ -17,19 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 async def get_db_settings():
-    from .db import SessionLocal, create_all_for_bind
+    from .db import SessionLocal, ensure_tables
     async with SessionLocal() as session:
         try:
             rows = (await session.execute(select(Setting))).scalars().all()
         except OperationalError:  # table wiped under a live server -- self-heal
-            await create_all_for_bind('metadata')
+            await ensure_tables()
             rows = (await session.execute(select(Setting))).scalars().all()
         return {r.key: json.loads(r.value) for r in rows}
 
 
 async def set_db_settings(values):
-    from .db import SessionLocal, create_all_for_bind
-    await create_all_for_bind('metadata')
+    from .db import SessionLocal, ensure_tables
+    await ensure_tables()
     async with SessionLocal() as session:
         for key, value in values.items():
             row = (await session.execute(select(Setting).filter_by(key=key))).scalar_one_or_none()
@@ -56,10 +56,10 @@ def ensure_secret_sync():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from .models import Base
-    from .vars import SQLALCHEMY_BINDS
+    from .vars import SQLALCHEMY_DATABASE_URI
 
     try:
-        engine = create_engine(SQLALCHEMY_BINDS['metadata'])
+        engine = create_engine(SQLALCHEMY_DATABASE_URI)
         try:
             Base.metadata.create_all(engine, tables=[Setting.__table__], checkfirst=True)
             s = sessionmaker(bind=engine)()
@@ -89,10 +89,10 @@ def load_db_settings_sync():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from .models import Base
-    from .vars import SQLALCHEMY_BINDS
+    from .vars import SQLALCHEMY_DATABASE_URI
 
     try:
-        engine = create_engine(SQLALCHEMY_BINDS['metadata'])
+        engine = create_engine(SQLALCHEMY_DATABASE_URI)
         try:
             Base.metadata.create_all(engine, tables=[Setting.__table__], checkfirst=True)
             s = sessionmaker(bind=engine)()
