@@ -271,10 +271,9 @@ def ensure_jobs_tables(config):
         # executed multiple times in tests / on live server-list edits
         jobs_table_map[node] = create_jobs_table(re.sub(STRICT_NAME_PATTERN, '_', scrapyd_server))
     from sqlalchemy import create_engine as _ce
-    from ..vars import SQLALCHEMY_BINDS as _BINDS
-    _eng = _ce(_BINDS['jobs'])
-    Base.metadata.create_all(_eng, tables=[m.local_table for m in Base.registry.mappers
-                                           if getattr(m.class_, '__bind_key__', None) == 'jobs'])
+    from ..vars import SQLALCHEMY_DATABASE_URI as _URI
+    _eng = _ce(_URI)
+    Base.metadata.create_all(_eng, checkfirst=True)
     _eng.dispose()
     logger.debug("Created %s tables for jobs", len(jobs_table_map))
 

@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from ..auth import (SESSION_COOKIE, SESSION_TTL, create_session_token,
                     hash_password, verify_password, verify_session_token)
-from ..db import SessionLocal, create_all_for_bind
+from ..db import SessionLocal, ensure_tables
 from ..models import User
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ async def _user_count():
         try:
             return (await s.execute(select(func.count()).select_from(User))).scalar() or 0
         except Exception:
-            await create_all_for_bind('metadata')
+            await ensure_tables()
             return (await s.execute(select(func.count()).select_from(User))).scalar() or 0
 
 
@@ -67,7 +67,7 @@ async def setup(request: Request):
         return JSONResponse({'status': 'error',
                              'message': 'username required; password must be at least 8 characters'},
                             status_code=400)
-    await create_all_for_bind('metadata')
+    await ensure_tables()
     async with SessionLocal() as s:
         user = User(username=username, password_hash=hash_password(password))
         s.add(user)

@@ -4,11 +4,8 @@ import re
 import sys
 
 
-DB_APSCHEDULER = 'scrapydweb_apscheduler'
-DB_TIMERTASKS = 'scrapydweb_timertasks'
-DB_METADATA = 'scrapydweb_metadata'
-DB_JOBS = 'scrapydweb_jobs'
-DBS = [DB_APSCHEDULER, DB_TIMERTASKS, DB_METADATA, DB_JOBS]
+DB_SCRAPYDWEB = 'scrapydweb'
+DBS = [DB_SCRAPYDWEB]
 
 PATTERN_MYSQL = re.compile(r'mysql://(.+?)(?::(.+?))?@(.+?):(\d+)')
 PATTERN_POSTGRESQL = re.compile(r'(?:postgres|postgresql)://(.+?)(?::(.+?))?@(.+?):(\d+)')
@@ -23,18 +20,18 @@ def test_database_url_pattern(database_url):
 
 
 def setup_database(database_url):
-    """Ensure the four databases exist on the server backend and return the URIs.
+    """Ensure the 'scrapydweb' database exists on the server and return its URI.
 
     A PostgreSQL (or MySQL) DATABASE_URL is required -- there is no embedded
-    fallback.
+    fallback. All tables (timer tasks, metadata, jobs, APScheduler jobstore)
+    live in this single database.
     """
     if not database_url:
         sys.exit("DATABASE_URL is required, e.g. postgres://username:password@127.0.0.1:5432\n"
                  "Set it via the DATABASE_URL environment variable.")
     database_url = re.sub(r'\\', '/', database_url)
     database_url = re.sub(r'/$', '', database_url)
-    # SQLAlchemy 2.0 dropped the legacy 'postgres://' scheme -- normalize early so every
-    # URI built below (sync engines, APScheduler jobstore, async mapping) is valid.
+    # SQLAlchemy 2.0 dropped the legacy 'postgres://' scheme -- normalize early.
     database_url = re.sub(r'^postgres://', 'postgresql://', database_url)
 
     m_mysql, m_postgres = test_database_url_pattern(database_url)
@@ -47,18 +44,10 @@ def setup_database(database_url):
                  "Use postgres://username:password@host:port or mysql://username:password@host:port"
                  % database_url)
 
-    APSCHEDULER_DATABASE_URI = '/'.join([database_url, DB_APSCHEDULER])
-    SQLALCHEMY_DATABASE_URI = '/'.join([database_url, DB_TIMERTASKS])
-    SQLALCHEMY_BINDS = {
-        'metadata': '/'.join([database_url, DB_METADATA]),
-        'jobs': '/'.join([database_url, DB_JOBS])
-    }
-
+    SQLALCHEMY_DATABASE_URI = '/'.join([database_url, DB_SCRAPYDWEB])
     if SCRAPYDWEB_TESTMODE:
-        print("APSCHEDULER_DATABASE_URI: %s" % APSCHEDULER_DATABASE_URI)
         print("SQLALCHEMY_DATABASE_URI: %s" % SQLALCHEMY_DATABASE_URI)
-        print("SQLALCHEMY_BINDS: %s" % SQLALCHEMY_BINDS)
-    return APSCHEDULER_DATABASE_URI, SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS
+    return SQLALCHEMY_DATABASE_URI
 
 
 def drop_database(cur, dbname, postgres=False):
@@ -126,7 +115,10 @@ def setup_postgresql(username, password, host, port):
     except (ImportError, AssertionError):
         sys.exit("Run command: %s" % install_command)
 
-    conn = psycopg2.connect(host=host, port=int(port), user=username, password=password)
+    # connect to the maintenance DB: the target database may not exist yet, and
+    # the test-mode DROP cannot run against the currently open database
+    conn = psycopg2.connect(host=host, port=int(port), user=username, password=password,
+                            dbname='postgres')
     conn.set_isolation_level(0)  # https://wiki.postgresql.org/wiki/Psycopg2_Tutorial
     cur = conn.cursor()
     for dbname in DBS:

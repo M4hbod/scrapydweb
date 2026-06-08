@@ -10,7 +10,7 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from ..common import handle_metadata
-from ..vars import APSCHEDULER_DATABASE_URI, TIMER_TASKS_HISTORY_LOG
+from ..vars import SQLALCHEMY_DATABASE_URI, TIMER_TASKS_HISTORY_LOG
 
 
 apscheduler_logger = logging.getLogger('apscheduler')
@@ -29,7 +29,7 @@ apscheduler_logger.addHandler(_handler)
 EVENT_MAP = {EVENT_JOB_MAX_INSTANCES: 'EVENT_JOB_MAX_INSTANCES', EVENT_JOB_REMOVED: 'EVENT_JOB_REMOVED'}
 
 jobstores = {
-    'default': SQLAlchemyJobStore(url=APSCHEDULER_DATABASE_URI),
+    'default': SQLAlchemyJobStore(url=SQLALCHEMY_DATABASE_URI),
     'memory': MemoryJobStore()
 }
 executors = {

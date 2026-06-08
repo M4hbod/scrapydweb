@@ -1,10 +1,8 @@
 # coding: utf-8
 """SQLAlchemy 2.0 models (async-ready).
 
-One declarative ``Base`` shared by three logical databases ("binds"): the
-default (timer tasks), ``metadata`` and ``jobs``. Each model carries a
-``__bind_key__``; ``scrapydweb.db`` routes sessions/engines accordingly. The
-per-server ``Job`` table is created dynamically and cached.
+One declarative ``Base``, one database. The per-server ``Job`` table is
+created dynamically and cached (not migration-managed).
 """
 from datetime import datetime
 from pprint import pformat
@@ -27,7 +25,6 @@ class Base(DeclarativeBase):
 class User(Base):
     """Login account (single admin for now)."""
     __tablename__ = 'user'
-    __bind_key__ = 'metadata'
 
     id = Column(BigInt, primary_key=True)
     username = Column(String(64), unique=True, nullable=False)
@@ -41,7 +38,6 @@ class User(Base):
 class JobStats(Base):
     """Centrally-collected per-job log stats (parsed by scrapydweb itself)."""
     __tablename__ = 'job_stats'
-    __bind_key__ = 'jobs'
     __table_args__ = (UniqueConstraint('server', 'project', 'spider', 'job'),)
 
     id = Column(BigInt, primary_key=True)
@@ -68,7 +64,6 @@ class JobStats(Base):
 class Setting(Base):
     """One UI-editable instance setting: key + json-encoded value (metadata bind)."""
     __tablename__ = 'setting'
-    __bind_key__ = 'metadata'
 
     key = Column(String(64), primary_key=True)
     value = Column(Text(), nullable=False)  # json.dumps(value)
@@ -80,7 +75,6 @@ class Setting(Base):
 
 class Metadata(Base):
     __tablename__ = 'metadata'
-    __bind_key__ = 'metadata'
 
     id = Column(BigInt, primary_key=True)
     version = Column(String(20), unique=True, nullable=False)
@@ -107,7 +101,6 @@ class Metadata(Base):
 class DeployRepo(Base):
     """A registered git repository for webhook-triggered auto-deploy."""
     __tablename__ = 'deploy_repo'
-    __bind_key__ = 'metadata'
 
     id = Column(BigInt, primary_key=True)
     name = Column(String(255), unique=True, nullable=False)
@@ -128,7 +121,6 @@ class DeployRepo(Base):
 class DeployRecord(Base):
     """Audit log: one row per deploy attempt, whatever the entry point."""
     __tablename__ = 'deploy_record'
-    __bind_key__ = 'metadata'
 
     id = Column(BigInt, primary_key=True)
     source = Column(String(16), nullable=False)         # file|folder|git|push|webhook
@@ -151,7 +143,6 @@ class DeployRecord(Base):
 class JobVersion(Base):
     """Which project version a scrapyd job was scheduled with (recorded at schedule time)."""
     __tablename__ = 'job_version'
-    __bind_key__ = 'jobs'
     __table_args__ = (UniqueConstraint('server', 'project', 'job'),)
 
     id = Column(BigInt, primary_key=True)
@@ -171,7 +162,6 @@ class JobVersion(Base):
 class AlertRule(Base):
     """Per-project/spider alert rule: non-null fields overlay the global settings."""
     __tablename__ = 'alert_rule'
-    __bind_key__ = 'metadata'
 
     id = Column(BigInt, primary_key=True)
     name = Column(String(255), nullable=False)
@@ -201,7 +191,6 @@ def create_jobs_table(server):
 
     class Job(Base):
         __tablename__ = server
-        __bind_key__ = 'jobs'
         __table_args__ = (UniqueConstraint('project', 'spider', 'job'), {'extend_existing': True})
 
         id = Column(BigInt, primary_key=True)

@@ -1,18 +1,16 @@
 # coding: utf-8
 """Async SQLAlchemy 2.0 layer.
 
-Three logical databases ("binds"): default (timer tasks), ``metadata`` and
-``jobs``. One async engine per bind; a routing ``Session`` picks the engine by
-each mapped class's ``__bind_key__`` so a single ``AsyncSession`` can touch all
-three. Replaces Flask-SQLAlchemy.
+One database, one async engine. Schema is managed by alembic (run in
+create_app()); ``ensure_tables`` keeps a checkfirst create_all around for
+runtime-only tables (per-server job tables) and test-mode self-healing.
 """
 import re
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from .models import Base, Metadata
-from .vars import SQLALCHEMY_BINDS, SQLALCHEMY_DATABASE_URI
+from .vars import SQLALCHEMY_DATABASE_URI
 
 
 def _to_async_url(url):
@@ -25,64 +23,26 @@ def _to_async_url(url):
     return url
 
 
-def _engine_kwargs(url):
-    # pre-ping so connections killed by the test-mode
-    # DROP DATABASE ... WITH (FORCE) are replaced instead of erroring.
-    return {'pool_pre_ping': True}
-
-
-# bind key -> async engine. None is the default bind.
-engines = {
-    None: create_async_engine(_to_async_url(SQLALCHEMY_DATABASE_URI), future=True,
-                              **_engine_kwargs(SQLALCHEMY_DATABASE_URI)),
-    'metadata': create_async_engine(_to_async_url(SQLALCHEMY_BINDS['metadata']), future=True,
-                                    **_engine_kwargs(SQLALCHEMY_BINDS['metadata'])),
-    'jobs': create_async_engine(_to_async_url(SQLALCHEMY_BINDS['jobs']), future=True,
-                                **_engine_kwargs(SQLALCHEMY_BINDS['jobs'])),
-}
-
-
-def _bind_key_for(mapper):
-    if mapper is not None:
-        return getattr(mapper.class_, '__bind_key__', None)
-    return None
-
-
-class RoutingSession(Session):
-    def get_bind(self, mapper=None, clause=None, **kw):
-        key = _bind_key_for(mapper)
-        if key is None and clause is not None and getattr(clause, 'table', None) is not None:
-            key = clause.table.info.get('bind_key')
-        return engines[key].sync_engine if key in engines else engines[None].sync_engine
-
+# pre-ping so connections killed by the test-mode DROP DATABASE ... WITH (FORCE)
+# are replaced instead of erroring.
+engine = create_async_engine(_to_async_url(SQLALCHEMY_DATABASE_URI), future=True,
+                             pool_pre_ping=True)
 
 SessionLocal = async_sessionmaker(
-    bind=engines[None],
-    sync_session_class=RoutingSession,
+    bind=engine,
     expire_on_commit=False,
     autoflush=False,  # read-then-decorate loops mutate mapped cols for display; never auto-persist
 )
 
 
-def _tables_for_bind(bind_key):
-    tables = []
-    for mapper in Base.registry.mappers:
-        if getattr(mapper.class_, '__bind_key__', None) == bind_key:
-            tables.append(mapper.local_table)
-    return tables
-
-
-async def create_all_for_bind(bind_key):
-    """Create the tables that belong to one bind on its engine."""
-    tables = _tables_for_bind(bind_key)
-    if not tables:
-        return
-    async with engines[bind_key].begin() as conn:
-        await conn.run_sync(Base.metadata.create_all, tables=tables)
+async def ensure_tables():
+    """checkfirst create_all: runtime tables (per-server job tables) + self-heal."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 def _run_db_migrations():
-    """alembic upgrade head across all three databases (sync; run in a thread)."""
+    """alembic upgrade head (sync; runs in create_app before anything reads the DB)."""
     import os
 
     from alembic import command
@@ -90,21 +50,16 @@ def _run_db_migrations():
 
     cfg = Config()
     cfg.set_main_option('script_location', os.path.join(os.path.dirname(__file__), 'migrations'))
-    cfg.set_main_option('databases', 'timer_tasks, metadata, jobs')
     command.upgrade(cfg, 'head')
 
 
 async def init_db():
-    # Migrations already ran synchronously in create_app(). The checkfirst
-    # create_all stays for runtime-only tables (per-server job tables) and
-    # self-healing after test-mode database drops.
-    for bind_key in (None, 'metadata', 'jobs'):
-        await create_all_for_bind(bind_key)
+    # Migrations already ran synchronously in create_app(); see ensure_tables.
+    await ensure_tables()
 
 
 async def dispose_db():
-    for engine in engines.values():
-        await engine.dispose()
+    await engine.dispose()
 
 
 # https://fastapi.tiangolo.com/tutorial/sql-databases/  dependency
@@ -125,12 +80,12 @@ from .__version__ import __version__  # noqa: E402
 
 
 async def _metadata_row(session):
-    """Fetch the row, self-healing if metadata.db was wiped under a live server."""
+    """Fetch the row, self-healing if the database was recreated under a live server."""
     try:
         return (await session.execute(
             select(Metadata).filter_by(version=__version__))).scalar_one_or_none()
-    except OperationalError:  # e.g. 'no such table: metadata' after the file was recreated
-        await create_all_for_bind('metadata')
+    except OperationalError:  # e.g. 'no such table' after a test-mode drop
+        await ensure_tables()
         await ensure_metadata_row()
         return (await session.execute(
             select(Metadata).filter_by(version=__version__))).scalar_one_or_none()
@@ -162,11 +117,11 @@ _jobs_tables = {}
 
 
 async def get_jobs_table(node, server):
-    """Get (and create) the per-server Job table model + physical table (jobs bind).
+    """Get (and create) the per-server Job table model + physical table.
 
     The physical table is ensured on EVERY call (create_all is checkfirst /
-    idempotent): the databases can be dropped underneath a running server
-    (e.g. the test suite recreates them), so a created-once cache would leave
+    idempotent): the database can be dropped underneath a running server
+    (e.g. the test suite recreates it), so a created-once cache would leave
     'no such table' errors behind.
     """
     if node in _jobs_tables:
@@ -174,7 +129,7 @@ async def get_jobs_table(node, server):
     else:
         Job = create_jobs_table(_re.sub(STRICT_NAME_PATTERN, '_', server))
         _jobs_tables[node] = Job
-    await create_all_for_bind('jobs')
+    await ensure_tables()
     return Job
 
 

@@ -66,9 +66,9 @@ async def record_job_version(server, project, spider, job, version, source='run'
     """Upsert (server, project, job) -> version; never raises (audit data only)."""
     if not (version and job):
         return
-    from ..db import SessionLocal, create_all_for_bind
+    from ..db import SessionLocal, ensure_tables
     try:
-        await create_all_for_bind('jobs')
+        await ensure_tables()
         async with SessionLocal() as s:
             await s.run_sync(_upsert, server, project, spider, job, version, source)
             await s.commit()

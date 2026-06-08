@@ -75,11 +75,13 @@ def test_task_fire_records_result(client):
     results = []
     while time.time() < deadline:
         js = client.get('/api/1/tasks/%s/results/' % task_id).json()
-        if js['status'] == cst.OK and js['results']:
+        # the executor commits the TaskResult row before its per-node
+        # TaskJobResult rows -- only stop once the job results landed too
+        if js['status'] == cst.OK and js['results'] and js['results'][0]['job_results']:
             results = js['results']
             break
         time.sleep(3)
-    assert results, 'task never produced a result'
+    assert results, 'task never produced a result with job results'
     job_results = results[0]['job_results']
     assert job_results
     # node 1 is live; the multinode selection defaults to node 1 only
