@@ -15,7 +15,6 @@ from sqlalchemy import and_, func, select
 from ..db import Pagination, SessionLocal, ensure_tables, get_metadata, set_metadata
 from ..models import Task, TaskJobResult, TaskResult
 from ..scheduler import STATE_PAUSED, STATE_RUNNING, safe_get_jobs, scheduler
-from ..urls import safe_url_for as u
 from ..vars import SCHEDULER_STATE_DICT, TIMER_TASKS_HISTORY_LOG
 
 router = APIRouter()
