@@ -6,7 +6,7 @@ import re
 
 from ..common import handle_metadata, handle_slash, json_dumps, session
 from ..models import Base, create_jobs_table
-from ..utils.scheduler import scheduler
+from ..scheduler import scheduler
 from ..utils.setup_database import test_database_url_pattern
 from ..vars import (ALLOWED_SCRAPYD_LOG_EXTENSIONS, ALERT_TRIGGER_KEYS,
                     SCHEDULER_STATE_DICT, STATE_PAUSED, STATE_RUNNING,
@@ -228,8 +228,11 @@ def check_app_config(config):
     if database_url:
         assert any(test_database_url_pattern(database_url)), "Invalid format of DATABASE_URL: %s" % database_url
 
-    # Apscheduler
-    # In __init__.py create_app(): scheduler.start(paused=True)
+    # Apscheduler: the app lifespan starts it (paused) when serving, but
+    # check_app_config may run at import time (asgi CHECK_APP_CONFIG bootstrap)
+    # before that, so start it here if it is not running yet.
+    if not scheduler.running:
+        scheduler.start(paused=True)
     if handle_metadata().get('scheduler_state', STATE_RUNNING) != STATE_PAUSED:
         scheduler.resume()
     logger.info("Scheduler for timer tasks: %s", SCHEDULER_STATE_DICT[scheduler.state])
@@ -387,6 +390,10 @@ def check_scrapyd_servers(config, check_connectivity=None):
 
 
 def check_scrapyd_connectivity(servers):
+    if not servers:
+        # zero servers is a valid state -- add nodes from the Settings page.
+        logger.info("No SCRAPYD_SERVERS configured; skipping connectivity check.")
+        return
     logger.debug("Checking connectivity of SCRAPYD_SERVERS...")
 
     def check_connectivity(server):
