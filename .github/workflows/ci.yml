@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [master, dev]
+    branches: [main]
     tags: ["v*"]
   pull_request:
-    branches: [master, dev]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -97,15 +97,15 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          # publish only from master and version tags; PRs/dev just validate the build
-          push: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/') }}
+          # publish only from main and version tags; PRs just validate the build
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

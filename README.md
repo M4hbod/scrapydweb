@@ -54,14 +54,14 @@ No build, no clone — pull the published image from GHCR and run the app + Post
 pointed at your own Scrapyd node:
 
 ```bash
-curl -O https://raw.githubusercontent.com/M4hbod/scrapydweb/master/docker-compose.deploy.yml
+curl -O https://raw.githubusercontent.com/M4hbod/scrapydweb/main/docker-compose.deploy.yml
 SCRAPYD_SERVERS=admin:12345@host.docker.internal:6800 \
   docker compose -f docker-compose.deploy.yml up -d
 # open http://127.0.0.1:5000  (first visit creates the admin account)
 ```
 
 The `ghcr.io/m4hbod/scrapydweb` image is built and pushed by CI on every push to
-`master` (tag `latest`) and on version tags (`vX.Y.Z`). Pin a version with
+`main` (tag `latest`) and on version tags (`vX.Y.Z`). Pin a version with
 `SCRAPYDWEB_TAG=v1.0.0`. You can also leave `SCRAPYD_SERVERS` unset and add nodes from
 the Settings page once the app is running.
 
@@ -125,8 +125,8 @@ One workflow, `.github/workflows/ci.yml`, on every push/PR:
    Scrapyd, no real Scrapyd needed).
 2. **Frontend** — type-check + build the SPA.
 3. **Docker image** — only runs once (1) and (2) pass, so a red suite blocks the image.
-   On `master` and `vX.Y.Z` tags it pushes `ghcr.io/m4hbod/scrapydweb` to GHCR (tags:
-   `latest`, the short SHA, semver on releases); on PRs/`dev` it just validates the build.
+   On `main` and `vX.Y.Z` tags it pushes `ghcr.io/m4hbod/scrapydweb` to GHCR (tags:
+   `latest`, the short SHA, semver on releases); on PRs it just validates the build.
 
 ## License
 
