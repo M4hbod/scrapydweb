@@ -7,7 +7,7 @@ import errno
 import glob
 import os
 from shutil import copyfile
-from subprocess import check_call
+from subprocess import CalledProcessError, check_call
 import sys
 import tempfile
 
@@ -66,13 +66,17 @@ def _build_egg(scrapy_cfg_path):
         _create_default_setup_py(settings=settings)
 
         d = tempfile.mkdtemp(prefix="scrapydweb-deploy-")
-        o = open(os.path.join(d, "stdout"), "wb")
-        e = open(os.path.join(d, "stderr"), "wb")
-        retry_on_eintr(check_call, [sys.executable, 'setup.py', 'clean', '-a', 'bdist_egg', '-d', d],
-                       stdout=o, stderr=e)
+        stderr_path = os.path.join(d, "stderr")
+        with open(os.path.join(d, "stdout"), "wb") as o, open(stderr_path, "wb") as e:
+            try:
+                retry_on_eintr(check_call,
+                               [sys.executable, 'setup.py', 'clean', '-a', 'bdist_egg', '-d', d],
+                               stdout=o, stderr=e)
+            except CalledProcessError as err:
+                # surface the real build output instead of just "exit status 1"
+                err.stderr_tail = _read_tail(stderr_path)
+                raise
         egg = glob.glob(os.path.join(d, '*.egg'))[0]
-        o.close()
-        e.close()
     except:
         os.chdir(cwd)
         raise
@@ -80,6 +84,14 @@ def _build_egg(scrapy_cfg_path):
         os.chdir(cwd)
 
     return egg, d
+
+
+def _read_tail(path, limit=1500):
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            return f.read()[-limit:].strip()
+    except OSError:
+        return ''
 
 
 def _create_default_setup_py(**kwargs):

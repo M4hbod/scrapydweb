@@ -31,6 +31,10 @@ dependencies = [
     "pytz>=2018.9",
     "six>=1.16",
     "alembic>=1.16.5",
+    # the "deploy from git/folder" feature builds eggs via `setup.py bdist_egg`,
+    # which needs setuptools -- uv venvs are not seeded with it (same dep that
+    # scrapyd-client declares for egg building)
+    "setuptools",
 ]
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
