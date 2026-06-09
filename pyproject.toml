@@ -9,7 +9,7 @@ description = "Web app for Scrapyd cluster management, with support for Scrapy l
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "GNU General Public License v3.0" }
-authors = [{ name = "my8100", email = "my8100@gmail.com" }]
+authors = [{ name = "M4hbod" }, { name = "my8100", email = "my8100@gmail.com" }]
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
@@ -42,7 +42,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/my8100/scrapydweb"
+Homepage = "https://github.com/M4hbod/scrapydweb"
+Upstream = "https://github.com/my8100/scrapydweb"
 
 [project.scripts]
 scrapydweb = "scrapydweb.run:main"

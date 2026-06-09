@@ -1,5 +1,19 @@
 Release History
 ===============
+Unreleased — full rewrite (fork: M4hbod/scrapydweb)
+---------------------------------------------------
+- Rewrote the backend on FastAPI (async, SQLAlchemy 2.0) serving a React SPA
+  (Vite, Tailwind v4, shadcn/ui); removed the Flask app, server-rendered
+  templates, and the jQuery/Vue static bundle
+- Dropped SQLite; a PostgreSQL/MySQL ``DATABASE_URL`` is now required, with all
+  data in a single ``scrapydweb`` database managed by Alembic migrations
+- Session-cookie auth; all settings are DB-backed and editable from the UI
+- Redesigned deploy (multi-node, history, GitHub webhook auto-deploy), Run
+  Spider (structured settings/arguments, live summary), and alerting
+  (per-project/spider rules); record the egg version each job ran with
+- Fast test suite via an in-process fake Scrapyd; live-Scrapyd tests opt-in
+
+
 1.6.0 (2025-02-16)
 ------------------
 - Support Python 3.13 and Scrapyd v1.5.0

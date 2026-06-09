@@ -58,7 +58,7 @@ class Constant(object):
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     LOGPARSER_VERSION = logparser_version
 
-    # ?flash=Add task #1 (Chinese 中文) successfully, next run at 2019-01-01 00:00:01.176468+08:00. Reload this page
+    # ?flash=Add task #1 successfully, next run at 2019-01-01 00:00:01.176468+08:00. Reload this page
     TASK_NEXT_RUN_TIME_PATTERN = re.compile(r"[ ]task #(\d+).+?next run at (.+?)\.[ ]")
 
     # default UA: werkzeug/0.14.1
