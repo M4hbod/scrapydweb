@@ -424,7 +424,11 @@ def check_scrapyd_connectivity(servers):
               idx=idx, group=group or 'None', server='%s:%s' % (ip, port), auth=auth, result=str(result)))
     print(HASH + '\n')
 
-    assert any(results), "None of your SCRAPYD_SERVERS could be connected. "
+    # A node being down must NOT crash boot -- it shows offline in the UI and
+    # self-heals when it comes back. Warn instead of asserting.
+    if not any(results):
+        logger.warning("None of your SCRAPYD_SERVERS could be connected. "
+                       "They will show as offline until reachable.")
 
 
 def check_slack_telegram(config, service):
