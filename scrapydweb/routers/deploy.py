@@ -22,6 +22,7 @@ from werkzeug.utils import secure_filename
 from ..context import NodeContext, get_node_context
 from ..common import get_now_string, json_dumps
 from ..vars import DEPLOY_PATH, LEGAL_NAME_PATTERN, STRICT_NAME_PATTERN
+from ..services.scrapyd import request_scrapyd
 from ..services.scrapyd_deploy import _build_egg, get_config
 from ..services.deploy_utils import mkdir_p, slot
 
@@ -175,14 +176,43 @@ async def deploy_egg_to_nodes(app, nodes, project, version, egg_bytes, eggname):
     responses = await asyncio.gather(*[
         _addversion(app.state.http_client, server, auth, project, version, egg_bytes)
         for _n, server, auth in targets])
-    results, ok_count = [], 0
-    for (n, server, _auth), (status_code, js) in zip(targets, responses):
-        ok = js.get('status') == OK
-        ok_count += ok
-        results.append(dict(node=n, server=server, status='ok' if ok else 'error',
-                            status_code=status_code, message=js.get('message', '')))
+
+    # An addversion "ok" only means scrapyd STORED the egg -- it never checks that
+    # the spiders import. Validate each successful node by listing the version's
+    # spiders; if the egg yields none (import error / broken project), roll it back
+    # with delversion so a broken egg can't linger or become "latest".
+    results = await asyncio.gather(*[
+        _finalize_node(app.state.http_client, n, server, auth, project, version, status_code, js)
+        for (n, server, auth), (status_code, js) in zip(targets, responses)])
+    ok_count = sum(1 for r in results if r['status'] == OK)
     overall = 'ok' if ok_count == len(targets) else ('partial' if ok_count else 'error')
     return overall, results, responses[0][1]
+
+
+async def _finalize_node(client, node, server, auth, project, version, status_code, js):
+    if js.get('status') != OK:
+        return dict(node=node, server=server, status='error',
+                    status_code=status_code, message=js.get('message', ''))
+    ok, msg = await _egg_lists_spiders(client, server, auth, project, version)
+    if ok:
+        return dict(node=node, server=server, status=OK, status_code=status_code, message='')
+    # broken egg -> roll it back so it doesn't persist / win "latest"
+    await request_scrapyd(client, 'http://%s/delversion.json' % server,
+                          data={'project': project, 'version': version}, auth=auth, as_json=True)
+    return dict(node=node, server=server, status='error', status_code=status_code,
+                message='deployed egg has no runnable spiders (rolled back): %s' % msg)
+
+
+async def _egg_lists_spiders(client, server, auth, project, version):
+    """Confirm the just-deployed egg actually yields spiders. Returns (ok, message)."""
+    url = 'http://%s/listspiders.json?project=%s&_version=%s' % (server, project, version)
+    try:
+        _code, js = await request_scrapyd(client, url, auth=auth, as_json=True)
+    except Exception as err:
+        return False, str(err)[-1500:]
+    if js.get('status') == OK and (js.get('spiders') or []):
+        return True, ''
+    return False, (js.get('message') or 'the egg contains no spiders')[-1500:]
 
 
 async def record_deploy(source, project, version, eggname, status, results=None,
