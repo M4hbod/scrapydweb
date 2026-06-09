@@ -132,8 +132,11 @@ def build_egg_from_cfg(cfg, eggname):
                           tip="Check the content of the 'scrapy.cfg' file in your project directory. ",
                           message="# The 'scrapy.cfg' file should be like:\n%s" % SCRAPY_CFG)
     except CalledProcessError as err:
+        # the real build output is attached by _build_egg; show it instead of just "exit status 1"
+        stderr_tail = getattr(err, 'stderr_tail', '') or ''
+        text = '%s\n\n%s' % (str(err), stderr_tail) if stderr_tail else str(err)
         return None, dict(status='error', alert='Fail to deploy project:',
-                          text=str(err),
+                          text=text,
                           tip='Check scrapy.cfg, or build the egg yourself. ',
                           message="# The 'scrapy.cfg' file should be like:\n%s" % SCRAPY_CFG)
     return eggpath, None
