@@ -1,5 +1,9 @@
 # ScrapydWeb
 
+[![CI](https://github.com/M4hbod/scrapydweb/actions/workflows/ci.yml/badge.svg)](https://github.com/M4hbod/scrapydweb/actions/workflows/ci.yml)
+[![Publish Docker images](https://github.com/M4hbod/scrapydweb/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/M4hbod/scrapydweb/actions/workflows/docker-publish.yml)
+[![License](https://img.shields.io/github/license/M4hbod/scrapydweb.svg)](LICENSE)
+
 Web UI and JSON API for managing a [Scrapyd](https://github.com/scrapy/scrapyd) cluster:
 deploy projects, run and schedule spiders, watch jobs, read parsed logs, and get
 alerted when crawls go wrong.
@@ -45,13 +49,30 @@ SQLite support have been removed.
 - Optional: Docker + Docker Compose, and [just](https://github.com/casey/just) for the
   task runner
 
-## Quick start (Docker Compose)
+## Quick start (prebuilt images)
 
-Brings up the app, a Scrapyd node, and PostgreSQL:
+No build, no clone — pull the published images from GHCR and run the whole stack
+(app + PostgreSQL + a Scrapyd node):
+
+```bash
+curl -O https://raw.githubusercontent.com/M4hbod/scrapydweb/master/docker-compose.deploy.yml
+docker compose -f docker-compose.deploy.yml up -d
+# open http://127.0.0.1:5000  (first visit creates the admin account)
+```
+
+Images are built and pushed by CI on every push to `master` (tag `latest`) and on
+version tags (`vX.Y.Z`): `ghcr.io/m4hbod/scrapydweb` and `ghcr.io/m4hbod/scrapyd`.
+Pin a version with `SCRAPYDWEB_TAG=v1.0.0 docker compose -f docker-compose.deploy.yml up -d`.
+To manage your own Scrapyd nodes, drop the `scrapyd` service and add nodes from the
+Settings page.
+
+## Build it yourself (Docker Compose)
+
+Builds the images locally instead of pulling them:
 
 ```bash
 just up          # docker compose up -d --build
-# open http://127.0.0.1:5000  (first visit creates the admin account)
+# open http://127.0.0.1:5000
 ```
 
 ## Local development
@@ -96,6 +117,17 @@ just cov         # fast suite + coverage report
 just test-live   # full suite incl. live-Scrapyd integration tests (needs `just infra`)
 just e2e         # Playwright smoke over the built SPA (needs a running app)
 ```
+
+## Continuous integration
+
+GitHub Actions (`.github/workflows/`):
+
+- **CI** — on every push/PR: runs the fast backend suite against a PostgreSQL service
+  (in-process fake Scrapyd, no real Scrapyd needed), type-checks and builds the SPA,
+  and validates both Dockerfiles build.
+- **Publish Docker images** — on push to `master` and on `vX.Y.Z` tags: builds and
+  pushes `ghcr.io/m4hbod/scrapydweb` and `ghcr.io/m4hbod/scrapyd` to GHCR (tags:
+  `latest`, the short SHA, and semver on releases).
 
 ## License
 
