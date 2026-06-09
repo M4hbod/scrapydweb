@@ -27,14 +27,6 @@ class Settings(dict):
     def __setattr__(self, name, value):
         self[name] = value
 
-    def from_object(self, obj):
-        for key in dir(obj):
-            if key.isupper():
-                self[key] = getattr(obj, key)
-
-    def from_mapping(self, *args, **kwargs):
-        self.update(*args, **kwargs)
-
 
 def _env_bool(name):
     val = os.environ.get(name)
