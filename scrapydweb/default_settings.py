@@ -3,15 +3,12 @@
 How ScrapydWeb works:
 BROWSER <<<>>> SCRAPYDWEB_BIND:SCRAPYDWEB_PORT <<<>>> your SCRAPYD_SERVERS
 
-GitHub: https://github.com/my8100/scrapydweb
-DOCS: https://github.com/my8100/files/blob/master/scrapydweb/README.md
-文档：https://github.com/my8100/files/blob/master/scrapydweb/README_CN.md
+GitHub: https://github.com/M4hbod/scrapydweb
 """
 import os
 
 
 ############################## QUICK SETUP start ##############################
-############################## 快速设置 开始 ###################################
 # Setting SCRAPYDWEB_BIND to '0.0.0.0' or IP-OF-THE-CURRENT-HOST would make
 # ScrapydWeb server visible externally; Otherwise, set it to '127.0.0.1'.
 # The default is '0.0.0.0'.
@@ -25,10 +22,6 @@ SCRAPYDWEB_PORT = 5000
 # Note that for remote access, you have to manually set 'bind_address = 0.0.0.0'
 # in the configuration file of Scrapyd and restart Scrapyd to make it visible externally.
 # Check out 'https://scrapyd.readthedocs.io/en/latest/config.html#example-configuration-file' for more info.
-# ------------------------------ Chinese --------------------------------------
-# 请先确保所有主机都已经安装和启动 [Scrapyd](https://github.com/scrapy/scrapyd)。
-# 如需远程访问 Scrapyd，则需在 Scrapyd 配置文件中设置 'bind_address = 0.0.0.0'，然后重启 Scrapyd。
-# 详见 https://scrapyd.readthedocs.io/en/latest/config.html#example-configuration-file
 
 # - the string format: username:password@ip:port#group
 #   - The default port would be 6800 if not provided,
@@ -46,11 +39,7 @@ SCRAPYD_SERVERS = []
 # The default is True, set it to False to skip checking connectivity of scrapyd at startup.
 CHECK_SCRAPYD_SERVERS = True
 
-# It's recommended to update the three options below
-# if both ScrapydWeb and one of your Scrapyd servers run on the same machine.
-# ------------------------------ Chinese --------------------------------------
 ############################## QUICK SETUP end ################################
-############################## 快速设置 结束 ###################################
 
 
 ############################## ScrapydWeb #####################################
