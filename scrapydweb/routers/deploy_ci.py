@@ -96,7 +96,12 @@ def _clone_and_build(repo, ref, token, project, version, testing):
         if not version:
             sha = subprocess.run(['git', '-C', tmp, 'rev-parse', '--short', 'HEAD'],
                                  capture_output=True, text=True)
-            version = sha.stdout.strip() or get_now_string()
+            short = sha.stdout.strip()
+            # Timestamp PREFIX so the newest deploy always sorts highest -> it is
+            # scrapyd's "latest" (a bare commit SHA sorts lexically, so an older
+            # sha can outrank a newer one and hijack "latest"). Keep the sha for
+            # traceability.
+            version = '%s_%s' % (get_now_string(), short) if short else get_now_string()
         project, version = _sanitize(project, version)
 
         cfg = _search_scrapy_cfg(tmp)
