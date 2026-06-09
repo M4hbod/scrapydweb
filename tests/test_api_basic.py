@@ -195,7 +195,9 @@ def test_session_auth(app):
         assert c.get('/api/nodes').status_code == 401
         assert c.get('/1/api/daemonstatus/').status_code == 401
         assert c.get('/api/auth/me').status_code == 200
-        assert c.get('/').status_code == 200
+        # the SPA shell is not auth-gated (200 when built, 404 when dist is
+        # absent in CI -- either way it must not be 401)
+        assert c.get('/').status_code != 401
 
         # bad then good login
         r = c.post('/api/auth/login', json={'username': ADMIN_USER, 'password': 'wrong'})
