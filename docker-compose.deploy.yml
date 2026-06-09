@@ -1,0 +1,68 @@
+# Turnkey deployment: pulls the prebuilt scrapydweb image from GHCR and runs it
+# with PostgreSQL and a bundled Scrapyd node on a private bridge network.
+#
+#   docker compose -f docker-compose.deploy.yml up -d
+#   open http://127.0.0.1:5000   (first visit creates the admin account)
+#
+# Override the image tag with SCRAPYDWEB_TAG (default: latest). To manage your
+# OWN scrapyd nodes instead of the bundled one, drop the `scrapyd` service and
+# set SCRAPYD_SERVERS / add nodes from the Settings page.
+
+name: scrapydweb
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scrapydweb
+      POSTGRES_PASSWORD: scrapydweb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scrapydweb"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  scrapyd:
+    image: ghcr.io/m4hbod/scrapyd:${SCRAPYDWEB_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.scrapyd
+    volumes:
+      - scrapyd-logs:/scrapyd/logs
+      - scrapyd-eggs:/scrapyd/eggs
+      - scrapyd-dbs:/scrapyd/dbs
+      - scrapyd-items:/scrapyd/items
+    restart: unless-stopped
+
+  scrapydweb:
+    image: ghcr.io/m4hbod/scrapydweb:${SCRAPYDWEB_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      scrapyd:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://scrapydweb:scrapydweb@postgres:5432
+      # SEED only: anything edited in the web UI is persisted to postgres and
+      # takes precedence on the next boot.
+      SCRAPYD_SERVERS: admin:12345@scrapyd:6800
+      CHECK_APP_CONFIG: "true"
+      ENABLE_SLACK_ALERT: "false"
+      ENABLE_TELEGRAM_ALERT: "false"
+      ENABLE_EMAIL_ALERT: "false"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  scrapyd-logs:
+  scrapyd-eggs:
+  scrapyd-dbs:
+  scrapyd-items:
