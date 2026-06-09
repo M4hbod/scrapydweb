@@ -1,7 +1,7 @@
 # Turnkey deployment: pulls the prebuilt scrapydweb image from GHCR and runs it
 # with PostgreSQL. Point it at your own Scrapyd node(s).
 #
-#   curl -O https://raw.githubusercontent.com/M4hbod/scrapydweb/master/docker-compose.deploy.yml
+#   curl -O https://raw.githubusercontent.com/M4hbod/scrapydweb/main/docker-compose.deploy.yml
 #   docker compose -f docker-compose.deploy.yml up -d
 #   open http://127.0.0.1:5000   (first visit creates the admin account)
 #
