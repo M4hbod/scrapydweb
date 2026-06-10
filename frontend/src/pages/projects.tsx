@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Link } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronDown, Code2, FolderGit2, Play, Rocket, Trash2 } from "lucide-react"
+import { ChevronDown, Code2, FolderGit2, Play, Plus, Rocket, Settings2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,60 +12,94 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getJSON, postJSON } from "@/lib/api"
+import { api, getJSON, postJSON, type DeployNodeResult, type Project } from "@/lib/api"
 import { useNode } from "@/lib/node-context"
 import { useConfirm } from "@/components/confirm-dialog"
+import { ProjectDialog } from "@/components/project-dialog"
 
 const LATEST = "default: the latest version"
 
 export default function ProjectsPage() {
   const { node } = useNode()
+  const qc = useQueryClient()
+  const [creating, setCreating] = React.useState(false)
   const { data, isLoading } = useQuery({
     queryKey: ["projects", node],
     queryFn: () => getJSON<{ projects?: string[]; status: string }>(`/${node}/api/listprojects/`),
   })
+  const { data: registered } = useQuery({ queryKey: ["projects"], queryFn: api.listProjects })
 
-  if (isLoading)
-    return (
-      <div className="mx-auto max-w-4xl">
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
-    )
-
-  const projects = data?.projects ?? []
+  const regByName = new Map((registered?.projects ?? []).map((p) => [p.name, p]))
+  const names = Array.from(
+    new Set([...(data?.projects ?? []), ...(registered?.projects ?? []).map((p) => p.name)]),
+  ).sort((a, b) => a.localeCompare(b))
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Projects</h2>
-        <span className="font-mono text-xs text-muted-foreground">
-          {projects.length} projects · node {node}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-muted-foreground">
+            {names.length} projects · node {node}
+          </span>
+          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setCreating(true)}>
+            <Plus className="size-3.5" /> Create project
+          </Button>
+        </div>
       </div>
-      {projects.length === 0 && (
+      {isLoading && <Skeleton className="h-64 rounded-xl" />}
+      {!isLoading && names.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <FolderGit2 className="size-7 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No projects deployed on this node.</p>
-            <Button asChild size="sm">
-              <Link to="/deploy">
-                <Rocket className="size-4" /> Deploy a project
-              </Link>
+            <p className="text-sm text-muted-foreground">No projects yet.</p>
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="size-4" /> Create a project
             </Button>
           </CardContent>
         </Card>
       )}
-      {projects.map((p) => (
-        <ProjectCard key={p} node={node} project={p} />
+      {names.map((p) => (
+        <ProjectCard key={p} node={node} project={p} registered={regByName.get(p) ?? null} />
       ))}
+      {creating && (
+        <ProjectDialog
+          project={null}
+          onClose={() => setCreating(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["projects"] })}
+        />
+      )}
     </div>
   )
 }
 
-function ProjectCard({ node, project }: { node: number; project: string }) {
+function ProjectCard({
+  node,
+  project,
+  registered,
+}: {
+  node: number
+  project: string
+  registered: Project | null
+}) {
   const qc = useQueryClient()
   const { confirm: confirmDialog, dialog: confirmUI } = useConfirm()
   const [open, setOpen] = React.useState(false)
+  const [configuring, setConfiguring] = React.useState(false)
+
+  const canDeploy = registered && (registered.deploy_source === "git" || registered.deploy_source === "webhook")
+  const deploy = useMutation({
+    mutationFn: () => api.deployProject(registered!.id),
+    onSuccess: (res) => {
+      for (const r of (res.results as DeployNodeResult[] | undefined) ?? [])
+        if (r.status !== "ok") toast.error(`node ${r.node}: ${r.message || "failed"}`)
+      if (res.status === "ok")
+        toast.success(`Deployed ${res.project} (${res.version})`)
+      else toast.error(String(res.message ?? "Deploy failed"))
+      qc.invalidateQueries({ queryKey: ["versions", node, project] })
+    },
+    onError: (e) => toast.error(`Deploy failed: ${e.message}`),
+  })
 
   const { data: versions, isLoading } = useQuery({
     queryKey: ["versions", node, project],
@@ -97,11 +131,26 @@ function ProjectCard({ node, project }: { node: number; project: string }) {
           <div className="flex items-center gap-3">
             <FolderGit2 className="size-4 text-muted-foreground" />
             <span className="font-medium">{project}</span>
+            {registered && (
+              <Badge variant="secondary" className="text-[10px]">
+                {registered.deploy_source}
+              </Badge>
+            )}
             <div className="ml-auto flex items-center gap-1.5">
+            {canDeploy && (
+              <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs"
+                disabled={deploy.isPending} onClick={() => deploy.mutate()}>
+                <Rocket className="size-3" /> {deploy.isPending ? "Deploying…" : "Deploy"}
+              </Button>
+            )}
             <Button asChild variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
               <Link to={`/schedule?project=${encodeURIComponent(project)}`}>
                 <Play className="size-3" /> Run
               </Link>
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs"
+              onClick={() => setConfiguring(true)}>
+              <Settings2 className="size-3" /> Configure
             </Button>
             <Button
               variant="ghost"
@@ -140,6 +189,14 @@ function ProjectCard({ node, project }: { node: number; project: string }) {
           </CardContent>
         </CollapsibleContent>
       </Card>
+      {configuring && (
+        <ProjectDialog
+          project={registered}
+          defaultName={project}
+          onClose={() => setConfiguring(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["projects"] })}
+        />
+      )}
       {confirmUI}
     </Collapsible>
   )

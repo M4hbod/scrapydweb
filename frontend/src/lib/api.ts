@@ -276,17 +276,20 @@ export interface DeployRecord {
   finished_at: string | null
 }
 
-export interface DeployRepo {
+export type DeploySource = "manual" | "folder" | "git" | "webhook"
+
+export interface Project {
   id: number
   name: string
+  description: string
+  deploy_source: DeploySource
+  default_nodes: number[]
   repo_url: string
   ref: string
-  project: string
   has_token: boolean
-  webhook_secret: string
-  webhook_path: string
-  nodes: number[]
   enabled: boolean
+  webhook_secret: string | null
+  webhook_path: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -447,13 +450,15 @@ export const api = {
       `/api/deploy/history${q ? `?${q}` : ""}`,
     )
   },
-  deployRepos: () => getJSON<{ status: string; repos: DeployRepo[] }>("/api/deploy/repos"),
-  createDeployRepo: (body: Record<string, unknown>) =>
-    postJSONBody<{ status: string; message?: string; repo?: DeployRepo }>("/api/deploy/repos", body),
-  updateDeployRepo: (id: number, body: Record<string, unknown>) =>
-    putJSON<{ status: string; message?: string; repo?: DeployRepo }>(`/api/deploy/repos/${id}`, body),
-  deleteDeployRepo: (id: number) =>
-    deleteJSON<{ status: string; message?: string }>(`/api/deploy/repos/${id}`),
+  listProjects: () => getJSON<{ status: string; projects: Project[] }>("/api/projects"),
+  createProject: (body: Record<string, unknown>) =>
+    postJSONBody<{ status: string; message?: string; project?: Project }>("/api/projects", body),
+  updateProject: (id: number, body: Record<string, unknown>) =>
+    putJSON<{ status: string; message?: string; project?: Project }>(`/api/projects/${id}`, body),
+  deleteProject: (id: number) =>
+    deleteJSON<{ status: string; message?: string }>(`/api/projects/${id}`),
+  deployProject: (id: number) =>
+    postJSONBody<Record<string, unknown>>(`/api/projects/${id}/deploy`, {}),
   alertRules: () => getJSON<{ status: string; rules: AlertRule[] }>("/api/alerts/rules"),
   createAlertRule: (body: Record<string, unknown>) =>
     postJSONBody<{ status: string; message?: string; rule?: AlertRule }>("/api/alerts/rules", body),
