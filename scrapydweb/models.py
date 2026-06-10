@@ -98,24 +98,27 @@ class Metadata(Base):
         return pformat(vars(self))
 
 
-class DeployRepo(Base):
-    """A registered git repository for webhook-triggered auto-deploy."""
-    __tablename__ = 'deploy_repo'
+class Project(Base):
+    """A registered project: its name is the identity, plus an optional saved
+    deploy mechanism (folder/upload/git/webhook). Folds the old DeployRepo."""
+    __tablename__ = 'project'
 
     id = Column(BigInt, primary_key=True)
-    name = Column(String(255), unique=True, nullable=False)
-    repo_url = Column(String(512), nullable=False)
-    ref = Column(String(255), nullable=False, default='main')      # branch to deploy from
-    project = Column(String(255), nullable=False)
-    access_token = Column(Text(), nullable=True)                   # private-repo clone token
-    webhook_secret = Column(String(64), nullable=False)            # HMAC secret (server-generated)
-    nodes_json = Column(Text(), nullable=False, default='[1]')     # json list of node numbers
-    enabled = Column(Boolean, nullable=False, default=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text(), nullable=True)
+    deploy_source = Column(String(16), nullable=False, default='manual')  # manual|folder|git|webhook
+    default_nodes_json = Column(Text(), nullable=False, default='[1]')    # json list of node numbers
+    # git / webhook config (used when deploy_source is git or webhook)
+    repo_url = Column(String(512), nullable=True)
+    ref = Column(String(255), nullable=True, default='main')             # branch to deploy from
+    access_token = Column(Text(), nullable=True)                         # private-repo clone token
+    webhook_secret = Column(String(64), nullable=True)                   # HMAC secret (server-generated)
+    enabled = Column(Boolean, nullable=False, default=True)              # webhook enabled
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def __repr__(self):
-        return '<DeployRepo #%s %s -> %s@%s>' % (self.id, self.name, self.project, self.ref)
+        return '<Project #%s %s (%s)>' % (self.id, self.name, self.deploy_source)
 
 
 class DeployRecord(Base):
