@@ -18,7 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # ECR mirror avoids Docker Hub's anonymous pull rate limit on CI runners
+        image: public.ecr.aws/docker/library/postgres:16-alpine
         env:
           POSTGRES_USER: scrapydweb
           POSTGRES_PASSWORD: scrapydweb

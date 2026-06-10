@@ -9,7 +9,6 @@ import {
   Pencil,
   Plus,
   Rocket,
-  Trash2,
   UploadCloud,
   Webhook,
   Workflow,
@@ -18,26 +17,20 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useConfirm } from "@/components/confirm-dialog"
 import { NodeMultiSelect } from "@/components/node-multi-select"
+import { ProjectComboBox } from "@/components/project-combobox"
+import { ProjectDialog } from "@/components/project-dialog"
 import {
   api,
   getJSON,
   type DeployNodeResult,
   type DeployRecord,
-  type DeployRepo,
+  type Project,
 } from "@/lib/api"
 import { useNode } from "@/lib/node-context"
 import { cn } from "@/lib/utils"
@@ -133,13 +126,8 @@ export default function DeployPage() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor="dp-project">Project name</Label>
-            <Input
-              id="dp-project"
-              placeholder="auto from scrapy.cfg / folder"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-            />
+            <Label>Project</Label>
+            <ProjectComboBox node={node} value={project} onChange={setProject} />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="dp-version">Version</Label>
@@ -355,8 +343,8 @@ function GitDeployCard({ node, nodes }: { node: number; nodes: number[] }) {
           />
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="git-project">Project name</Label>
-          <Input id="git-project" value={project} onChange={(e) => setProject(e.target.value)} />
+          <Label>Project</Label>
+          <ProjectComboBox node={node} value={project} onChange={setProject} />
         </div>
         <div className="grid gap-2">
           <Label htmlFor="git-version">Version</Label>
@@ -383,32 +371,19 @@ function GitDeployCard({ node, nodes }: { node: number; nodes: number[] }) {
   )
 }
 
-// ------------------------------------------------------------------ auto-deploy (webhooks)
-const EMPTY_REPO = { name: "", repo_url: "", ref: "main", project: "", access_token: "", nodes: [1] }
-
+// ------------------------------------------------------------------ auto-deploy (webhook projects)
 function AutoDeployCard() {
   const qc = useQueryClient()
-  const { confirm: confirmDialog, dialog: confirmUI } = useConfirm()
-  const { data, isLoading } = useQuery({ queryKey: ["deploy-repos"], queryFn: api.deployRepos })
-  const [editing, setEditing] = React.useState<DeployRepo | "new" | null>(null)
+  const { data, isLoading } = useQuery({ queryKey: ["projects"], queryFn: api.listProjects })
+  const [editing, setEditing] = React.useState<Project | "new" | null>(null)
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["deploy-repos"] })
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["projects"] })
 
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
-      api.updateDeployRepo(id, { enabled }),
+      api.updateProject(id, { enabled }),
     onSuccess: invalidate,
     onError: (e) => toast.error(`Update failed: ${e.message}`),
-  })
-
-  const del = useMutation({
-    mutationFn: (id: number) => api.deleteDeployRepo(id),
-    onSuccess: (res) => {
-      if (res.status === "ok") toast.success("Repo removed")
-      else toast.error(res.message ?? "Delete failed")
-      invalidate()
-    },
-    onError: (e) => toast.error(`Delete failed: ${e.message}`),
   })
 
   const copy = (text: string, what: string) => {
@@ -416,215 +391,85 @@ function AutoDeployCard() {
     toast.success(`${what} copied`)
   }
 
-  const repos = data?.repos ?? []
+  const webhookProjects = (data?.projects ?? []).filter((p) => p.deploy_source === "webhook")
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-sm font-semibold">Auto-deploy from GitHub</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Register a repo, add its webhook to GitHub — every push to the branch deploys
-            automatically (version = short commit sha).
+            A project with a GitHub-webhook deploy mechanism auto-deploys on every push to its
+            branch (version = timestamp + short sha). Configure it on the project.
           </p>
         </div>
         <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setEditing("new")}>
-          <Plus className="size-3.5" /> Add repo
+          <Plus className="size-3.5" /> New webhook project
         </Button>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {isLoading && <Skeleton className="h-20 rounded-lg" />}
-        {!isLoading && repos.length === 0 && (
+        {!isLoading && webhookProjects.length === 0 && (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No repos registered yet.
+            No webhook projects yet.
           </p>
         )}
-        {repos.map((r) => (
-          <div key={r.id} className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
+        {webhookProjects.map((p) => (
+          <div key={p.id} className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <Webhook className="size-4 text-muted-foreground" />
-              <span className="font-medium">{r.name}</span>
+              <span className="font-medium">{p.name}</span>
               <span className="font-mono text-xs text-muted-foreground">
-                {r.repo_url.replace(/^https:\/\//, "")} @ {r.ref} → {r.project}
+                {p.repo_url.replace(/^https:\/\//, "")} @ {p.ref}
               </span>
               <Badge variant="outline" className="font-mono text-[10px]">
-                nodes {r.nodes.join(",")}
+                nodes {p.default_nodes.join(",")}
               </Badge>
-              {r.has_token && (
-                <Badge variant="secondary" className="text-[10px]">
-                  private
-                </Badge>
-              )}
+              {p.has_token && <Badge variant="secondary" className="text-[10px]">private</Badge>}
               <div className="ml-auto flex items-center gap-1.5">
                 <Switch
-                  checked={r.enabled}
-                  onCheckedChange={(enabled) => toggle.mutate({ id: r.id, enabled })}
-                  aria-label={`Enable ${r.name}`}
+                  checked={p.enabled}
+                  onCheckedChange={(enabled) => toggle.mutate({ id: p.id, enabled })}
+                  aria-label={`Enable ${p.name}`}
                 />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  aria-label={`Edit ${r.name}`}
-                  onClick={() => setEditing(r)}
-                >
+                <Button variant="ghost" size="icon" className="size-7"
+                  aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)}>
                   <Pencil className="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-destructive hover:text-destructive"
-                  aria-label={`Delete ${r.name}`}
-                  onClick={async () =>
-                    (await confirmDialog({
-                      title: `Remove repo "${r.name}"?`,
-                      description: "Its webhook deliveries will return 404. Deploy history is kept.",
-                      confirmLabel: "Remove repo",
-                      destructive: true,
-                    })) && del.mutate(r.id)
-                  }
-                >
-                  <Trash2 className="size-3.5" />
                 </Button>
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {window.location.origin}
-                {r.webhook_path}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 gap-1 text-[11px]"
-                onClick={() => copy(window.location.origin + r.webhook_path, "Webhook URL")}
-              >
-                <Copy className="size-3" /> URL
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 gap-1 text-[11px]"
-                onClick={() => copy(r.webhook_secret, "Webhook secret")}
-              >
-                <Copy className="size-3" /> Secret
-              </Button>
-              <span className="text-[11px] text-muted-foreground">
-                GitHub → repo Settings → Webhooks → content type{" "}
-                <span className="font-mono">application/json</span>, events: push
-              </span>
-            </div>
+            {p.webhook_path && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {window.location.origin}
+                  {p.webhook_path}
+                </span>
+                <Button variant="outline" size="sm" className="h-6 gap-1 text-[11px]"
+                  onClick={() => copy(window.location.origin + (p.webhook_path ?? ""), "Webhook URL")}>
+                  <Copy className="size-3" /> URL
+                </Button>
+                {p.webhook_secret && (
+                  <Button variant="outline" size="sm" className="h-6 gap-1 text-[11px]"
+                    onClick={() => copy(p.webhook_secret ?? "", "Webhook secret")}>
+                    <Copy className="size-3" /> Secret
+                  </Button>
+                )}
+                <span className="text-[11px] text-muted-foreground">
+                  GitHub → Webhooks → content type{" "}
+                  <span className="font-mono">application/json</span>, events: push
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </CardContent>
       {editing && (
-        <RepoDialog
-          repo={editing === "new" ? null : editing}
+        <ProjectDialog
+          project={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={invalidate}
         />
       )}
-      {confirmUI}
     </Card>
-  )
-}
-
-function RepoDialog({
-  repo,
-  onClose,
-  onSaved,
-}: {
-  repo: DeployRepo | null
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [form, setForm] = React.useState(() =>
-    repo
-      ? { name: repo.name, repo_url: repo.repo_url, ref: repo.ref, project: repo.project,
-          access_token: "", nodes: repo.nodes }
-      : EMPTY_REPO,
-  )
-  const [error, setError] = React.useState("")
-  const [busy, setBusy] = React.useState(false)
-  const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
-
-  const save = async () => {
-    setError("")
-    setBusy(true)
-    try {
-      const body: Record<string, unknown> = {
-        name: form.name, repo_url: form.repo_url, ref: form.ref,
-        project: form.project, nodes: form.nodes,
-      }
-      // only send the token when the user typed one (edits keep the stored token)
-      if (form.access_token) body.access_token = form.access_token
-      const res = repo
-        ? await api.updateDeployRepo(repo.id, body)
-        : await api.createDeployRepo(body)
-      if (res.status === "ok") {
-        toast.success(repo ? "Repo updated" : `Repo added — copy the webhook URL + secret into GitHub`)
-        onSaved()
-        onClose()
-      } else {
-        setError(res.message ?? "Save failed")
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{repo ? `Edit ${repo.name}` : "Register a repo"}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-2">
-            <Label htmlFor="rd-name">Name</Label>
-            <Input id="rd-name" value={form.name} onChange={(e) => set("name", e.target.value)} />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="rd-project">Project</Label>
-            <Input id="rd-project" value={form.project}
-                   onChange={(e) => set("project", e.target.value)} />
-          </div>
-          <div className="grid gap-2 sm:col-span-2">
-            <Label htmlFor="rd-url">Repository (https)</Label>
-            <Input id="rd-url" className="font-mono text-xs"
-                   placeholder="https://github.com/you/your-scrapy-project"
-                   value={form.repo_url} onChange={(e) => set("repo_url", e.target.value)} />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="rd-ref">Branch</Label>
-            <Input id="rd-ref" className="font-mono text-xs" value={form.ref}
-                   onChange={(e) => set("ref", e.target.value)} />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="rd-token">Access token</Label>
-            <Input id="rd-token" type="password" autoComplete="off"
-                   placeholder={repo?.has_token ? "(unchanged)" : "optional, private repos"}
-                   value={form.access_token}
-                   onChange={(e) => set("access_token", e.target.value)} />
-          </div>
-          <div className="grid gap-2 sm:col-span-2">
-            <Label>Deploy to nodes</Label>
-            <NodeMultiSelect value={form.nodes} onChange={(nodes) => set("nodes", nodes)} />
-          </div>
-          {error && <p className="font-mono text-xs text-destructive sm:col-span-2">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !form.name || !form.repo_url || !form.project || form.nodes.length === 0}
-            onClick={save}
-          >
-            {busy ? "Saving…" : repo ? "Save changes" : "Register repo"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 

@@ -1,5 +1,5 @@
 # coding: utf-8
-"""GitHub webhook auto-deploy: repo CRUD, HMAC verification, end-to-end deploy."""
+"""Project registry: CRUD, per-project git deploy, GitHub webhook auto-deploy."""
 import hashlib
 import hmac
 import json
@@ -32,83 +32,78 @@ def _make_local_repo():
     return tmp
 
 
-def test_repos_crud(client):
-    # create
-    r = client.post('/api/deploy/repos', json={
-        'name': 'crud-repo', 'repo_url': 'https://example.com/o/r.git',
-        'ref': 'dev', 'project': PROJECT, 'nodes': [1, 2]})
+def test_projects_crud(client):
+    # create a webhook project -> secret generated
+    r = client.post('/api/projects', json={
+        'name': 'crud_proj', 'deploy_source': 'webhook',
+        'repo_url': 'https://example.com/o/r.git', 'ref': 'dev', 'nodes': [1, 2]})
     assert r.status_code == 200, r.text
-    repo = r.json()['repo']
-    assert repo['ref'] == 'dev' and repo['nodes'] == [1, 2]
-    assert len(repo['webhook_secret']) == 64
-    assert repo['webhook_path'] == '/api/webhooks/github/%s' % repo['id']
-    repo_id = repo['id']
+    p = r.json()['project']
+    assert p['ref'] == 'dev' and p['default_nodes'] == [1, 2]
+    assert len(p['webhook_secret']) == 64
+    assert p['webhook_path'] == '/api/webhooks/github/%s' % p['id']
+    pid = p['id']
     try:
+        # a plain manual project needs no repo
+        r = client.post('/api/projects', json={'name': 'manual_proj'})
+        assert r.status_code == 200 and r.json()['project']['deploy_source'] == 'manual'
+        client.delete('/api/projects/%s' % r.json()['project']['id'])
         # validation
-        r = client.post('/api/deploy/repos', json={'name': '', 'repo_url': 'x', 'project': 'p'})
-        assert r.status_code == 400
-        r = client.post('/api/deploy/repos', json={
-            'name': 'bad-url', 'repo_url': 'http://insecure', 'project': 'p'})
+        assert client.post('/api/projects', json={'name': ''}).status_code == 400
+        r = client.post('/api/projects', json={
+            'name': 'bad_url', 'deploy_source': 'git', 'repo_url': 'http://insecure'})
         assert r.status_code == 400 and 'https' in r.json()['message']
         # duplicate name
-        r = client.post('/api/deploy/repos', json={
-            'name': 'crud-repo', 'repo_url': 'https://example.com/o/r.git', 'project': 'p'})
+        r = client.post('/api/projects', json={'name': 'crud_proj'})
         assert r.status_code == 400 and 'already exists' in r.json()['message']
         # list
-        repos = client.get('/api/deploy/repos').json()['repos']
-        assert any(x['id'] == repo_id for x in repos)
+        names = [x['name'] for x in client.get('/api/projects').json()['projects']]
+        assert 'crud_proj' in names
         # update + secret rotation
-        r = client.put('/api/deploy/repos/%s' % repo_id,
+        r = client.put('/api/projects/%s' % pid,
                        json={'ref': 'main', 'enabled': False, 'rotate_secret': True})
         assert r.status_code == 200, r.text
-        updated = r.json()['repo']
-        assert updated['ref'] == 'main' and updated['enabled'] is False
-        assert updated['webhook_secret'] != repo['webhook_secret']
-        # disabled repo -> webhook 404
-        r = client.post('/api/webhooks/github/%s' % repo_id, content=b'{}',
+        upd = r.json()['project']
+        assert upd['ref'] == 'main' and upd['enabled'] is False
+        assert upd['webhook_secret'] != p['webhook_secret']
+        # disabled project -> webhook 404
+        r = client.post('/api/webhooks/github/%s' % pid, content=b'{}',
                         headers={'X-Hub-Signature-256': 'sha256=00'})
         assert r.status_code == 404
-        r = client.put('/api/deploy/repos/999999', json={'ref': 'x'})
-        assert r.status_code == 404
+        assert client.put('/api/projects/999999', json={'ref': 'x'}).status_code == 404
     finally:
-        assert client.delete('/api/deploy/repos/%s' % repo_id).status_code == 200
-    assert client.delete('/api/deploy/repos/%s' % repo_id).status_code == 404
+        assert client.delete('/api/projects/%s' % pid).status_code == 200
+    assert client.delete('/api/projects/%s' % pid).status_code == 404
 
 
 def test_webhook_signature_and_events(client):
-    r = client.post('/api/deploy/repos', json={
-        'name': 'sig-repo', 'repo_url': 'https://example.com/o/r.git',
-        'ref': 'main', 'project': PROJECT, 'nodes': [1]})
-    repo = r.json()['repo']
-    url = repo['webhook_path']
-    secret = repo['webhook_secret']
+    r = client.post('/api/projects', json={
+        'name': 'sig_proj', 'deploy_source': 'webhook',
+        'repo_url': 'https://example.com/o/r.git', 'ref': 'main', 'nodes': [1]})
+    p = r.json()['project']
+    url, secret = p['webhook_path'], p['webhook_secret']
     try:
         body = json.dumps({'ref': 'refs/heads/main'}).encode()
-        # missing / wrong signature
         assert client.post(url, content=body).status_code == 401
         assert client.post(url, content=body,
                            headers={'X-Hub-Signature-256': 'sha256=deadbeef'}).status_code == 401
-        # ping -> pong
         r = client.post(url, content=b'{"zen": "ok"}',
                         headers={'X-Hub-Signature-256': _sign(secret, b'{"zen": "ok"}'),
                                  'X-GitHub-Event': 'ping'})
         assert r.status_code == 200 and r.json()['message'] == 'pong'
-        # non-push event ignored
         r = client.post(url, content=body,
                         headers={'X-Hub-Signature-256': _sign(secret, body),
                                  'X-GitHub-Event': 'issues'})
         assert r.status_code == 200 and 'ignored event' in r.json()['message']
-        # push to another branch ignored
         other = json.dumps({'ref': 'refs/heads/feature'}).encode()
         r = client.post(url, content=other,
                         headers={'X-Hub-Signature-256': _sign(secret, other),
                                  'X-GitHub-Event': 'push'})
         assert r.status_code == 200 and 'ignored ref' in r.json()['message']
-        # unknown repo id
         assert client.post('/api/webhooks/github/999999', content=body,
                            headers={'X-Hub-Signature-256': _sign(secret, body)}).status_code == 404
     finally:
-        client.delete('/api/deploy/repos/%s' % repo['id'])
+        client.delete('/api/projects/%s' % p['id'])
 
 
 def test_webhook_needs_no_session(app):
@@ -116,46 +111,70 @@ def test_webhook_needs_no_session(app):
     from starlette.testclient import TestClient
     from tests.conftest import authenticate
     with TestClient(app, follow_redirects=False) as anon:
-        authenticate(anon)             # ensure the admin exists...
-        anon.post('/api/auth/logout')  # ...then drop the session
-        # 404 (unknown repo), NOT 401 (unauthenticated)
-        r = anon.post('/api/webhooks/github/999999', content=b'{}')
-        assert r.status_code == 404
+        authenticate(anon)
+        anon.post('/api/auth/logout')
+        # 404 (unknown project), NOT 401 (unauthenticated)
+        assert anon.post('/api/webhooks/github/999999', content=b'{}').status_code == 404
         # CRUD stays session-gated
-        assert anon.get('/api/deploy/repos').status_code == 401
+        assert anon.get('/api/projects').status_code == 401
+
+
+@pytest.mark.skipif(not shutil.which('git'), reason='git not installed')
+def test_project_git_deploy(client):
+    """A git project deploys via its saved config (POST /{id}/deploy)."""
+    tmp = _make_local_repo()
+    r = client.post('/api/projects', json={
+        'name': PROJECT, 'deploy_source': 'git', 'repo_url': 'file://' + tmp,
+        'ref': 'main', 'nodes': [1]})
+    assert r.status_code == 200, r.text
+    pid = r.json()['project']['id']
+    version = None
+    try:
+        r = client.post('/api/projects/%s/deploy' % pid)
+        assert r.status_code == 200, r.text
+        js = r.json()
+        assert js['status'] == cst.OK and js['results'][0]['status'] == cst.OK
+        version = js['version']
+        assert version
+        code = client.get('/api/code/%s/%s/' % (PROJECT, version)).json()
+        assert code['status'] == cst.OK and code['files']
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        client.delete('/api/projects/%s' % pid)
+        if version:
+            client.post('/1/api/delversion/%s/%s/' % (PROJECT, version))
 
 
 @pytest.mark.skipif(not shutil.which('git'), reason='git not installed')
 def test_webhook_deploy_end_to_end(client):
     tmp = _make_local_repo()
-    r = client.post('/api/deploy/repos', json={
-        'name': 'e2e-repo', 'repo_url': 'file://' + tmp,
-        'ref': 'main', 'project': PROJECT, 'nodes': [1]})
+    r = client.post('/api/projects', json={
+        'name': PROJECT, 'deploy_source': 'webhook', 'repo_url': 'file://' + tmp,
+        'ref': 'main', 'nodes': [1]})
     assert r.status_code == 200, r.text
-    repo = r.json()['repo']
+    p = r.json()['project']
     version = None
     try:
         body = json.dumps({'ref': 'refs/heads/main'}).encode()
-        r = client.post(repo['webhook_path'], content=body,
-                        headers={'X-Hub-Signature-256': _sign(repo['webhook_secret'], body),
+        r = client.post(p['webhook_path'], content=body,
+                        headers={'X-Hub-Signature-256': _sign(p['webhook_secret'], body),
                                  'X-GitHub-Event': 'push'})
         assert r.status_code == 202, r.text
         record_id = r.json()['record_id']
         assert record_id
         # TestClient runs BackgroundTasks before returning -> record is final
-        js = client.get('/api/deploy/history?repo_id=%s' % repo['id']).json()
+        js = client.get('/api/deploy/history?project=%s' % PROJECT).json()
         assert js['status'] == cst.OK and js['total'] >= 1
         rec = next(x for x in js['records'] if x['id'] == record_id)
         assert rec['status'] == cst.OK, rec
-        assert rec['source'] == 'webhook' and rec['actor'] == 'webhook:e2e-repo'
+        assert rec['source'] == 'webhook' and rec['actor'] == 'webhook:%s' % PROJECT
         assert rec['results'][0]['node'] == 1 and rec['results'][0]['status'] == cst.OK
         version = rec['version']
-        assert version  # short commit sha
-        # deployed egg is browsable in the code viewer
+        assert version
         js = client.get('/api/code/%s/%s/' % (PROJECT, version)).json()
         assert js['status'] == cst.OK and js['files']
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-        client.delete('/api/deploy/repos/%s' % repo['id'])
+        client.delete('/api/projects/%s' % p['id'])
         if version:
             client.post('/1/api/delversion/%s/%s/' % (PROJECT, version))
