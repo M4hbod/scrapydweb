@@ -77,6 +77,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -105,6 +106,7 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
           # publish only from main and version tags; PRs just validate the build
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
