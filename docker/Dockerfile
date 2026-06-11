@@ -2,7 +2,7 @@
 # Stage 1 builds the React SPA (Vite); stage 2 is the uv-managed Python runtime.
 
 # ---------------------------------------------------------------- ui bundle
-FROM public.ecr.aws/docker/library/node:22-alpine AS ui
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/node:22-alpine AS ui
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
