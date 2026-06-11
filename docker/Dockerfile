@@ -15,8 +15,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
-# git: used by the "deploy from git" feature
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+# git: the "deploy from git" feature. gosu: entrypoint drops root -> app user.
+RUN apt-get update && apt-get install -y --no-install-recommends git gosu \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
@@ -27,13 +27,17 @@ COPY scrapydweb ./scrapydweb
 RUN uv sync --frozen --no-dev --no-group test
 
 COPY --from=ui /build/dist ./frontend/dist
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Writable data dir + non-root (host-uid) user so bind-mounted scrapyd logs that
-# the in-container logparser touches stay owned by the developer.
+# Writable data dir + non-root (host-uid) app user so bind-mounted scrapyd logs
+# the in-container logparser touches stay owned by the developer. The container
+# starts as root only so the entrypoint can chown a fresh bind mount, then drops
+# to uid 1000 before exec'ing uvicorn.
 ENV DATA_PATH=/data
 RUN mkdir -p /data && chown -R 1000:1000 /data /app
-USER 1000:1000
 
 EXPOSE 5000
 ENV HOME=/app
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/app/.venv/bin/uvicorn", "scrapydweb.asgi:app", "--host", "0.0.0.0", "--port", "5000"]
