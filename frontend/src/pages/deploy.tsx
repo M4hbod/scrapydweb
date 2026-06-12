@@ -32,6 +32,7 @@ import {
   type DeployRecord,
   type Project,
 } from "@/lib/api"
+import { fmtDateTime } from "@/lib/datetime"
 import { useNode } from "@/lib/node-context"
 import { cn } from "@/lib/utils"
 
@@ -136,6 +137,7 @@ export default function DeployPage() {
               className="font-mono"
               value={version}
               onChange={(e) => setVersion(e.target.value)}
+              disabled={!project}
             />
           </div>
           <div className="grid gap-2 sm:col-span-2">
@@ -199,7 +201,7 @@ export default function DeployPage() {
                     </Badge>
                   )}
                   <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-                    {f.modified}
+                    {fmtDateTime(f.modified)}
                   </span>
                 </button>
               ))}
@@ -354,6 +356,7 @@ function GitDeployCard({ node, nodes }: { node: number; nodes: number[] }) {
             value={version}
             onChange={(e) => setVersion(e.target.value)}
             className="font-mono text-xs"
+            disabled={!project}
           />
         </div>
         {error && (
@@ -505,7 +508,9 @@ function RecentDeploysCard() {
             key={r.id}
             className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-secondary/20 px-3 py-2"
           >
-            <span className="font-mono text-[11px] text-muted-foreground">{r.created_at}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {fmtDateTime(r.created_at)}
+            </span>
             <Badge variant="outline" className="font-mono text-[10px] uppercase">
               {SOURCE_LABEL[r.source] ?? r.source}
             </Badge>
