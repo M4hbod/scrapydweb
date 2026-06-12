@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/tooltip"
 import { StatusPill } from "@/components/status-pill"
 import { api, postJSON, type JobRow } from "@/lib/api"
+import { fmtDateTime, parseServerDate } from "@/lib/datetime"
 import { useNode } from "@/lib/node-context"
 import { cn } from "@/lib/utils"
 
@@ -457,7 +458,7 @@ function DurationChart({ jobs }: { jobs: JobRow[] }) {
         .map((j) => {
           const secs = parseRuntime(j.runtime)
           return {
-            x: new Date(j.start!.replace(" ", "T")).getTime(),
+            x: (parseServerDate(j.start) ?? new Date(0)).getTime(),
             y: Math.max(1, secs ?? 1),
             fill: runColor(j),
             job: j,
@@ -549,7 +550,7 @@ function Num({ v }: { v: number | null }) {
 }
 
 function Time({ v }: { v: string | null }) {
-  return <span className="font-mono text-xs text-muted-foreground">{v ?? "–"}</span>
+  return <span className="font-mono text-xs text-muted-foreground">{fmtDateTime(v)}</span>
 }
 
 function IconAction({

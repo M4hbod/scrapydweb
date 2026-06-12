@@ -48,16 +48,6 @@ function buildTree(paths: string[]): TreeNode[] {
   return root.children
 }
 
-function collectDirs(nodes: TreeNode[], acc: Set<string>) {
-  for (const n of nodes) {
-    if (n.dir) {
-      acc.add(n.path)
-      collectDirs(n.children, acc)
-    }
-  }
-  return acc
-}
-
 function fileIcon(name: string) {
   return name.endsWith(".py") ? FileCode2 : FileText
 }
@@ -155,16 +145,25 @@ export default function CodePage() {
   )
   const tree = React.useMemo(() => buildTree(files.map((f) => f.path)), [files])
 
-  // expand all folders once the listing arrives
-  React.useEffect(() => {
-    if (tree.length) setExpanded(collectDirs(tree, new Set<string>()))
-  }, [tree])
-
   // auto-select first spider file (else first file)
   React.useEffect(() => {
     if (selected || !files.length) return
     const spider = files.find((f) => f.path.includes("spiders/") && f.path.endsWith(".py"))
-    setSelected((spider ?? files[0]).path)
+    const path = (spider ?? files[0]).path
+    setSelected(path)
+    // reveal just the auto-selected file: expand its ancestor folders only
+    const parts = path.split("/").slice(0, -1)
+    if (parts.length) {
+      setExpanded((prev) => {
+        const next = new Set(prev)
+        let acc = ""
+        for (const p of parts) {
+          acc = acc ? `${acc}/${p}` : p
+          next.add(acc)
+        }
+        return next
+      })
+    }
   }, [files, selected])
 
   const toggle = React.useCallback((p: string) => {

@@ -97,7 +97,7 @@ export function TargetCard({ node }: { node: number }) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Version</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value} onValueChange={field.onChange} disabled={!project}>
                   <FormControl>
                     <SelectTrigger className="w-full">
                       <SelectValue />
@@ -121,7 +121,7 @@ export function TargetCard({ node }: { node: number }) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Spider</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value} onValueChange={field.onChange} disabled={!project}>
                   <FormControl>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="spider" />
