@@ -82,6 +82,40 @@ def test_schedule_run_multinode_first_node(client, fake_scrapyd):
     assert js['first_selected_node'] == 1
 
 
+def _add_task(client, name, minute, action='add_pause'):
+    chk = client.post('/1/schedule/check/', data=dict(
+        project=PROJECT, _version=cst.DEFAULT_LATEST_VERSION, spider=SPIDER, jobid='',
+        trigger='cron', action=action, name=name, minute=minute)).json()
+    js = client.post('/1/schedule/run/', data={
+        'filename': chk['filename'], 'checked_amount': '1', '1': 'on'}).json()
+    assert js['status'] == cst.OK, js
+    return js['task_id']
+
+
+def test_timer_task_edit_updates_in_place(client, fake_scrapyd):
+    _deploy(client)
+    task_id = _add_task(client, name='nightly', minute='0')
+    before = client.get('/api/1/tasks/').json()
+    row = next(t for t in before['tasks'] if t['id'] == task_id)
+    assert row['name'] == 'nightly' and row['minute'] == '0'
+
+    # edit: same task_id + replace_existing -> in-place update, not a new row
+    chk = client.post('/1/schedule/check/', data=dict(
+        project=PROJECT, _version=cst.DEFAULT_LATEST_VERSION, spider=SPIDER, jobid='',
+        trigger='cron', action='add_pause', name='nightly-renamed', minute='30',
+        task_id=str(task_id), replace_existing='True')).json()
+    js = client.post('/1/schedule/run/', data={
+        'filename': chk['filename'], 'checked_amount': '1', '1': 'on'}).json()
+    assert js['status'] == cst.OK, js
+    assert js['task_id'] == task_id  # same id -> updated, not created
+
+    after = client.get('/api/1/tasks/').json()
+    assert after['total'] == before['total']  # no new task row
+    row = next(t for t in after['tasks'] if t['id'] == task_id)
+    assert row['name'] == 'nightly-renamed'
+    assert row['minute'] == '30'
+
+
 def test_schedule_history(client):
     r = client.get('/schedule/history/')
     assert r.status_code == 200
