@@ -23,6 +23,8 @@ export interface ScheduleFormValues {
   mode: "now" | "cron"
   name: string
   action: "add_fire" | "add" | "add_pause"
+  // >0 when editing an existing timer task (replace_existing path); 0/absent = create
+  taskId?: number
   year: string
   month: string
   day: string
@@ -55,6 +57,10 @@ export function buildScheduleForm(v: ScheduleFormValues): Record<string, string>
     out.trigger = "cron"
     out.action = v.action
     out.name = v.name
+    if (v.taskId) {
+      out.task_id = String(v.taskId)
+      out.replace_existing = "True"
+    }
     out.year = v.year
     out.month = v.month
     out.day = v.day

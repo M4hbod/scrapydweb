@@ -5,6 +5,7 @@ import {
   CalendarClock,
   ListTree,
   Pause,
+  Pencil,
   Play,
   Plus,
   Square,
@@ -185,6 +186,11 @@ export default function TasksPage() {
                           label="Run history"
                           icon={ListTree}
                           onClick={() => showHistory(t)}
+                        />
+                        <Act
+                          label="Edit task"
+                          icon={Pencil}
+                          onClick={() => navigate(`/schedule?timer=1&taskId=${t.id}`)}
                         />
                         {t.status !== "Finished" && (
                           <Act
