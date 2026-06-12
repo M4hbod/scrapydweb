@@ -97,6 +97,16 @@
     /* reserve the scrollbar gutter so pages with/without overflow don't shift */
     scrollbar-gutter: stable;
   }
+  /* Radix Select/Dialog lock body scroll via react-remove-scroll, which adds
+     `margin-right: <scrollbar>px !important` (and padding) to body to compensate
+     for the removed scrollbar. We already reserve the gutter on <html>, so that
+     compensation just shifts the page sideways when a dropdown opens. Beat its
+     !important rules with a higher-specificity selector and zero them out. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+    --removed-body-scroll-bar-size: 0px !important;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     background-image:

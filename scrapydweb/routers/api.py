@@ -27,11 +27,14 @@ def _build_url(ctx, opt, project, version_spider_job):
     return url
 
 
-def _build_data(opt, project, version_spider_job):
+def _build_data(opt, project, version_spider_job, version=None):
     data = dict(project=project)
     if opt == 'start':
         data['spider'] = version_spider_job
         data['jobid'] = get_now_string()
+        # re-run the exact egg version the job used (else scrapyd defaults to latest)
+        if version and version != DEFAULT_LATEST_VERSION:
+            data['_version'] = version
     elif opt in ['stop', 'forcestop']:
         data['job'] = version_spider_job
     elif opt == 'delversion':
@@ -58,10 +61,10 @@ def _handle_result(js, status_code, opt, project, version_spider_job, server):
     return js
 
 
-async def call_api(request, ctx, opt, project=None, version_spider_job=None):
+async def call_api(request, ctx, opt, project=None, version_spider_job=None, version=None):
     """Run a Scrapyd API call and return the result dict (shared by api/projects/nodereports)."""
     url = _build_url(ctx, opt, project, version_spider_job)
-    data = _build_data(opt, project, version_spider_job)
+    data = _build_data(opt, project, version_spider_job, version)
     timeout = 3 if opt == 'daemonstatus' else 60
     times = 2 if opt == 'forcestop' else 1
     client = request.app.state.http_client
@@ -76,7 +79,8 @@ async def call_api(request, ctx, opt, project=None, version_spider_job=None):
 
 async def api(request: Request, opt: str, project: str = None, version_spider_job: str = None,
               ctx: NodeContext = Depends(get_node_context)):
-    return JSONResponse(await call_api(request, ctx, opt, project, version_spider_job))
+    version = request.query_params.get('_version')
+    return JSONResponse(await call_api(request, ctx, opt, project, version_spider_job, version=version))
 
 
 for _path in ('/{node:int}/api/{opt}/{project}/{version_spider_job}/',

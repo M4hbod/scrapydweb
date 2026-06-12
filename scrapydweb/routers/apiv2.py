@@ -7,12 +7,13 @@ proxy); mutating actions reuse the existing JSON endpoints (tasks.xhr, scrapyd a
 until the legacy UI is removed at cutover.
 """
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
-from ..context import NodeContext, get_node_context
+from ..context import DEFAULT_LATEST_VERSION, NodeContext, get_node_context
 from ..db import Pagination, SessionLocal, get_metadata
 from ..models import Task, TaskJobResult, TaskResult
 from ..scheduler import STATE_RUNNING, scheduler
@@ -176,13 +177,23 @@ async def api_jobs(request: Request, node: int, page: int = 1, per_page: int = 1
     rows = []
     for j in db_rows:
         try:
-            finish_reason = liststats[j.project][j.spider][j.job].get('finish_reason')
+            st = liststats[j.project][j.spider][j.job]
         except (KeyError, TypeError):
-            finish_reason = None
+            st = None
+        finish_reason = st.get('finish_reason') if st else None
+        # the parsed log stats (JobStats) are authoritative for pages/items; the
+        # Job table column is often null until backfilled, so prefer the collector
+        pages = j.pages if j.pages is not None else (st or {}).get('pages')
+        items = j.items if j.items is not None else (st or {}).get('items')
+        # re-run reuses the version this job actually ran (else scrapyd picks latest)
+        version = job_versions.get((j.project, j.job))
+        url_start = u(app_, 'api', node=node, opt='start', project=j.project, version_spider_job=j.spider)
+        if version and version != DEFAULT_LATEST_VERSION:
+            url_start += '?_version=%s' % quote(version, safe='')
         rows.append(dict(
             id=j.id, project=j.project, spider=j.spider, job=j.job,
-            status=j.status, pid=j.pid, pages=j.pages, items=j.items,
-            version=job_versions.get((j.project, j.job)),
+            status=j.status, pid=j.pid, pages=pages, items=items,
+            version=version,
             finish_reason=finish_reason,
             start=_dt(j.start), finish=_dt(j.finish), runtime=j.runtime,
             update_time=_dt(j.update_time),
@@ -190,7 +201,7 @@ async def api_jobs(request: Request, node: int, page: int = 1, per_page: int = 1
             url_stats=u(app_, 'log', node=node, opt='stats', project=j.project, spider=j.spider, job=j.job),
             url_log=u(app_, 'log', node=node, opt='utf8', project=j.project, spider=j.spider, job=j.job),
             url_stop=u(app_, 'api', node=node, opt='stop', project=j.project, version_spider_job=j.job),
-            url_start=u(app_, 'api', node=node, opt='start', project=j.project, version_spider_job=j.spider),
+            url_start=url_start,
         ))
     pages_total = max(1, (total + per_page - 1) // per_page) if per_page else 1
     return JSONResponse({'status': 'ok', 'node': node, 'page': page, 'per_page': per_page,

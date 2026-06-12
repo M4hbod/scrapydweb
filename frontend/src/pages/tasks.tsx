@@ -8,7 +8,6 @@ import {
   Pencil,
   Play,
   Plus,
-  Square,
   Trash2,
   Zap,
 } from "lucide-react"
@@ -29,6 +28,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { StatusPill } from "@/components/status-pill"
 import { api, type TaskRow } from "@/lib/api"
+import { fmtDateTime } from "@/lib/datetime"
 import { useNode } from "@/lib/node-context"
 import { useConfirm } from "@/components/confirm-dialog"
 
@@ -134,12 +134,7 @@ export default function TasksPage() {
               {tasks.map((t) => {
                 const pill = PILL[t.status]
                 return (
-                  <TableRow
-                    key={t.id}
-                    className="cursor-pointer hover:bg-secondary/30"
-                    onClick={() => showHistory(t)}
-                    title="Click to view run history"
-                  >
+                  <TableRow key={t.id} className="hover:bg-secondary/30">
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {t.id}
                     </TableCell>
@@ -161,7 +156,7 @@ export default function TasksPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
-                      {t.next_run_time?.slice(0, 19) ?? "–"}
+                      {fmtDateTime(t.next_run_time)}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {t.run_times}
@@ -180,7 +175,7 @@ export default function TasksPage() {
                         {t.prev_run_result}
                       </span>
                     </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TableCell>
                       <div className="flex justify-end gap-1">
                         <Act
                           label="Run history"
@@ -237,7 +232,7 @@ export default function TasksPage() {
                         ) : (
                           <Act
                             label="Stop (remove from scheduler)"
-                            icon={Square}
+                            icon={Trash2}
                             destructive
                             onClick={async () =>
                               (await confirmDialog({

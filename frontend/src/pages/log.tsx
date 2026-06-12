@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StatusPill } from "@/components/status-pill"
 import { api, type LogStatsResponse, type LogTextResponse } from "@/lib/api"
+import { fmtDateTime } from "@/lib/datetime"
 
 export default function LogPage() {
   const { node: nodeParam, opt, project, spider, job } = useParams()
@@ -388,9 +389,9 @@ export function StatsPanel({
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 font-mono text-xs">
-              <Row k="first log" v={s.first_log_time} />
-              <Row k="latest log" v={s.latest_log_time} />
-              <Row k="updated" v={s.last_update_time} />
+              <Row k="first log" v={fmtDateTime(s.first_log_time, "N/A")} />
+              <Row k="latest log" v={fmtDateTime(s.latest_log_time, "N/A")} />
+              <Row k="updated" v={fmtDateTime(s.last_update_time, "N/A")} />
               <Row k="shutdown" v={s.shutdown_reason} />
               <Row k="logparser" v={logparserValid ? "yes" : "fallback parse"} />
             </dl>

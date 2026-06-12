@@ -157,7 +157,7 @@ export default function DashboardPage() {
           {d.activity.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">No recent jobs.</p>
           )}
-          {d.activity.map((e, i) => (
+          {[...d.activity].reverse().map((e, i) => (
             <Link
               key={i}
               to={`/log/${e.node}/stats/${encodeURIComponent(e.project)}/${encodeURIComponent(e.spider)}/${encodeURIComponent(e.job)}${e.status_class === "fin" ? "?finished=1" : ""}`}

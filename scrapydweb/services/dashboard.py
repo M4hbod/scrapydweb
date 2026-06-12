@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, or_, select
 
 from ..db import SessionLocal, get_jobs_table
+from ..models import JobStats
 from ..urls import safe_url_for
 
 # Job.status codes (mirror routers/jobs.py)
@@ -68,24 +69,32 @@ async def build_cluster_dashboard(app, ctx=None):
                 try:
                     Job = await get_jobs_table(node, server)
 
-                    # per-status counts + page/item sums in one grouped query
+                    # per-status job counts
                     rows = (await session.execute(
-                        select(Job.status, func.count(Job.id),
-                               func.coalesce(func.sum(Job.pages), 0),
-                               func.coalesce(func.sum(Job.items), 0))
+                        select(Job.status, func.count(Job.id))
                         .where(Job.deleted == '0')
                         .group_by(Job.status))).all()
-                    for status, cnt, pages, items in rows:
+                    for status, cnt in rows:
                         cnt = int(cnt or 0)
                         summary['jobs_total'] += cnt
-                        summary['pages'] += int(pages or 0)
-                        summary['items'] += int(items or 0)
                         if status == _RUNNING:
                             summary['running'] = cnt
                         elif status == _PENDING:
                             summary['pending'] = cnt
                         elif status == _FINISHED:
                             summary['finished'] = cnt
+
+                    # pages/items come from the parsed log stats (JobStats), which the
+                    # Job table doesn't reliably carry; key them for the activity feed too
+                    st_rows = (await session.execute(
+                        select(JobStats.project, JobStats.spider, JobStats.job,
+                               JobStats.pages, JobStats.items)
+                        .filter_by(server=server))).all()
+                    st_map = {}
+                    for p, sp, jb, pg, it in st_rows:
+                        st_map[(p, sp, jb)] = (pg, it)
+                        summary['pages'] += int(pg or 0)
+                        summary['items'] += int(it or 0)
 
                     # most-recent jobs for the activity feed
                     recent = (await session.execute(
@@ -95,10 +104,11 @@ async def build_cluster_dashboard(app, ctx=None):
                     for j in recent:
                         last_dt = last_dt or j.update_time
                         label, cls = _PILL.get(j.status, ('', 'fin'))
+                        pg, it = st_map.get((j.project, j.spider, j.job), (j.pages, j.items))
                         activity_pool.append((j.update_time or datetime.min, dict(
                             node=node, server=server, project=j.project, spider=j.spider,
                             job=j.job, status_label=label, status_class=cls,
-                            pages=j.pages, items=j.items, runtime=j.runtime,
+                            pages=pg, items=it, runtime=j.runtime,
                             when=_ago(j.update_time))))
                     summary['last'] = _ago(last_dt)
 
