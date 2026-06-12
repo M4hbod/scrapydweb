@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -11,7 +11,7 @@ import { SettingsCard } from "@/components/schedule/settings-card"
 import { SummaryPanel } from "@/components/schedule/summary-panel"
 import { TargetCard } from "@/components/schedule/target-card"
 import { WhenCard } from "@/components/schedule/when-card"
-import { postForm } from "@/lib/api"
+import { api, postForm, type TaskRow } from "@/lib/api"
 import { useNode } from "@/lib/node-context"
 import {
   LATEST,
@@ -46,6 +46,7 @@ const schema = z
     mode: z.enum(["now", "cron"]),
     name: z.string(),
     action: z.enum(["add_fire", "add", "add_pause"]),
+    taskId: z.number().optional(),
     year: z.string(),
     month: z.string(),
     day: z.string(),
@@ -79,10 +80,64 @@ const schema = z
     })
   })
 
+// Map a stored timer task back into Run Spider form values. settings_arguments
+// is the JSON the backend persisted: a `setting` list of "KEY=VAL" strings plus
+// loose arg keys; selected_nodes is the node-id list.
+function taskToForm(t: TaskRow): ScheduleFormValues {
+  let sa: Record<string, unknown> = {}
+  try {
+    sa = JSON.parse(t.settings_arguments || "{}")
+  } catch {
+    sa = {}
+  }
+  const settings = (Array.isArray(sa.setting) ? (sa.setting as string[]) : []).map((s) => {
+    const i = s.indexOf("=")
+    return i < 0 ? { key: s, value: "" } : { key: s.slice(0, i), value: s.slice(i + 1) }
+  })
+  const args = Object.entries(sa)
+    .filter(([k]) => k !== "setting")
+    .map(([key, value]) => ({ key, value: String(value) }))
+  let nodes: number[] = []
+  try {
+    nodes = JSON.parse(t.selected_nodes || "[]")
+  } catch {
+    nodes = []
+  }
+  return {
+    project: t.project,
+    _version: t.version || LATEST,
+    spider: t.spider,
+    jobid: t.jobid,
+    nodes: nodes.length ? nodes : [1],
+    settings,
+    args,
+    mode: "cron",
+    name: t.name || "",
+    action: "add_fire",
+    taskId: t.id,
+    year: t.year,
+    month: t.month,
+    day: t.day,
+    week: t.week,
+    day_of_week: t.day_of_week,
+    hour: t.hour,
+    minute: t.minute,
+    second: t.second,
+  }
+}
+
 export default function SchedulePage() {
   const { node } = useNode()
   const navigate = useNavigate()
   const [params] = useSearchParams()
+  const editId = params.get("taskId") ? Number(params.get("taskId")) : null
+
+  // when editing, pull the task off the list and prefill the form once it loads
+  const { data: taskList } = useQuery({
+    queryKey: ["tasks", node],
+    queryFn: () => api.tasks(node),
+    enabled: editId != null,
+  })
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(schema),
@@ -114,6 +169,15 @@ export default function SchedulePage() {
     if (!form.formState.dirtyFields.nodes) form.setValue("nodes", [node])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node])
+
+  // prefill from the existing task when editing
+  React.useEffect(() => {
+    if (editId == null || !taskList) return
+    const t = taskList.tasks.find((x) => x.id === editId)
+    if (!t) return
+    form.reset(taskToForm(t))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, taskList])
 
   const run = useMutation({
     mutationFn: async (v: ScheduleFormValues) => {
@@ -165,7 +229,9 @@ export default function SchedulePage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold">Run Spider</h2>
+        <h2 className="text-lg font-semibold">
+          {editId != null ? `Edit Task #${editId}` : "Run Spider"}
+        </h2>
         <span className="font-mono text-xs text-muted-foreground">node {node}</span>
       </div>
 
