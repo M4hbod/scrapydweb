@@ -202,6 +202,9 @@ export interface LogStatsResponse {
     latest_log_time: string | null
     last_update_time: string | null
     log_categories?: Record<string, LogCategory>
+    // logparser time-series for the crawl-progress chart:
+    // [time, pages, pages/min, items, items/min]
+    datas?: [string, number, number, number, number][]
     [key: string]: unknown
   }
 }
