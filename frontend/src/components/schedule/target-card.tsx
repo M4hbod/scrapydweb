@@ -30,6 +30,7 @@ export function TargetCard({ node }: { node: number }) {
   const form = useFormContext<ScheduleFormValues>()
   const project = form.watch("project")
   const version = form.watch("_version")
+  const spider = form.watch("spider")
 
   const { data: projects } = useQuery({
     queryKey: ["listprojects", node],
@@ -105,6 +106,11 @@ export function TargetCard({ node }: { node: number }) {
                   </FormControl>
                   <SelectContent>
                     <SelectItem value={LATEST}>{LATEST}</SelectItem>
+                    {/* keep the prefilled value selectable before the query resolves */}
+                    {version && version !== LATEST &&
+                      !(versions?.versions ?? []).includes(version) && (
+                        <SelectItem value={version}>{version}</SelectItem>
+                      )}
                     {(versions?.versions ?? []).map((v) => (
                       <SelectItem key={v} value={v}>
                         {v}
@@ -128,6 +134,10 @@ export function TargetCard({ node }: { node: number }) {
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
+                    {/* keep the prefilled value selectable before the query resolves */}
+                    {spider && !(spiders?.spiders ?? []).includes(spider) && (
+                      <SelectItem value={spider}>{spider}</SelectItem>
+                    )}
                     {(spiders?.spiders ?? []).map((sp) => (
                       <SelectItem key={sp} value={sp}>
                         {sp}
