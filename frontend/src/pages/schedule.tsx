@@ -113,7 +113,8 @@ function taskToForm(t: TaskRow): ScheduleFormValues {
     args,
     mode: "cron",
     name: t.name || "",
-    action: "add_fire",
+    // editing saves an update without firing immediately; user can still pick fire/pause
+    action: "add",
     taskId: t.id,
     year: t.year,
     month: t.month,
@@ -138,10 +139,20 @@ export default function SchedulePage() {
     queryFn: () => api.tasks(node),
     enabled: editId != null,
   })
+  const editTask = React.useMemo(
+    () => (editId != null && taskList ? taskList.tasks.find((x) => x.id === editId) : undefined),
+    [editId, taskList],
+  )
+  // RHF `values` reactively syncs the form once the task arrives (and keeps the
+  // user's own edits) -- more reliable than a reset-in-effect that races the
+  // project/version/spider option queries.
+  const editValues = React.useMemo(() => (editTask ? taskToForm(editTask) : undefined), [editTask])
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(schema),
     mode: "onChange",
+    values: editValues,
+    resetOptions: { keepDirtyValues: true },
     defaultValues: {
       project: params.get("project") ?? "",
       _version: params.get("version") ?? LATEST,
@@ -164,20 +175,12 @@ export default function SchedulePage() {
     },
   })
 
-  // keep the default node selection in sync with the topbar (only while untouched)
+  // keep the default node selection in sync with the topbar (only while untouched,
+  // and never when editing -- the task carries its own node selection)
   React.useEffect(() => {
-    if (!form.formState.dirtyFields.nodes) form.setValue("nodes", [node])
+    if (editId == null && !form.formState.dirtyFields.nodes) form.setValue("nodes", [node])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node])
-
-  // prefill from the existing task when editing
-  React.useEffect(() => {
-    if (editId == null || !taskList) return
-    const t = taskList.tasks.find((x) => x.id === editId)
-    if (!t) return
-    form.reset(taskToForm(t))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editId, taskList])
 
   const run = useMutation({
     mutationFn: async (v: ScheduleFormValues) => {
