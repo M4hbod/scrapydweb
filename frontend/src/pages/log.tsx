@@ -2,6 +2,16 @@ import * as React from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowDownToLine, Code2, Download, ExternalLink } from "lucide-react"
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -240,6 +250,76 @@ function LogStats({
   )
 }
 
+// Crawl-progress line chart over logparser's time-series:
+// each datas row is [time, pages, pages/min, items, items/min].
+function ProgressChart({ datas }: { datas?: [string, number, number, number, number][] }) {
+  const points = React.useMemo(
+    () =>
+      (datas ?? []).map((d) => ({
+        t: String(d[0]).slice(11, 19) || String(d[0]),
+        pages: d[1],
+        items: d[3],
+      })),
+    [datas],
+  )
+  if (points.length < 2) return null
+
+  return (
+    <Card className="gap-2 py-4">
+      <CardHeader className="py-0">
+        <CardTitle className="text-sm font-semibold">Crawl progress</CardTitle>
+      </CardHeader>
+      <CardContent className="px-2">
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={points} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis
+              dataKey="t"
+              tickLine={false}
+              axisLine={false}
+              fontSize={10}
+              tickMargin={6}
+              minTickGap={32}
+            />
+            <YAxis tickLine={false} axisLine={false} fontSize={10} width={44} allowDecimals={false} />
+            <RechartsTooltip
+              cursor={{ strokeDasharray: "3 3", stroke: "var(--border)" }}
+              content={({ payload, label }) => {
+                if (!payload?.length) return null
+                const p = payload[0]?.payload as { pages: number; items: number }
+                return (
+                  <div className="rounded-lg border border-border bg-popover px-3 py-2 font-mono text-xs shadow-md">
+                    <p className="text-muted-foreground">{String(label)}</p>
+                    <p style={{ color: "var(--chart-1)" }}>{p.pages} pages</p>
+                    <p style={{ color: "var(--chart-2)" }}>{p.items} items</p>
+                  </div>
+                )
+              }}
+            />
+            <Legend iconType="plainline" wrapperStyle={{ fontSize: 10 }} />
+            <Line
+              type="monotone"
+              dataKey="pages"
+              stroke="var(--chart-1)"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="items"
+              stroke="var(--chart-2)"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function StatsPanel({
   stats: s,
   logparserValid,
@@ -265,6 +345,8 @@ export function StatsPanel({
           tone={s.finish_reason === "finished" ? "ok" : s.finish_reason === "N/A" ? "muted" : "warn"}
         />
       </div>
+
+      <ProgressChart datas={s.datas} />
 
       <div className="grid gap-4 *:min-w-0 lg:grid-cols-2">
         <Card>
