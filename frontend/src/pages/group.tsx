@@ -1,10 +1,11 @@
+import * as React from "react"
 import { useNavigate } from "react-router-dom"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { ChevronDown, Crosshair, Layers, TerminalSquare } from "lucide-react"
+import { ChevronDown, Crosshair, Layers, Play, Save, TerminalSquare, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -158,6 +159,55 @@ export default function GroupPage() {
       }
     },
     onError: (e) => toast.error(`Run group failed: ${e.message}`),
+  })
+
+  // saved groups: persist the current config, then fire by id (curl-friendly)
+  const qc = useQueryClient()
+  const [groupName, setGroupName] = React.useState("")
+  const { data: groupsData } = useQuery({ queryKey: ["groups"], queryFn: api.listGroups })
+  const groups = groupsData?.groups ?? []
+
+  const save = useMutation({
+    mutationFn: () => {
+      const v = form.getValues()
+      return api.createGroup({
+        name: groupName.trim(),
+        project: v.project,
+        version: v._version === LATEST ? "" : v._version,
+        spiders: v.spiders,
+        nodes: v.nodes,
+        settings: v.settings.filter((s) => s.key && s.value),
+        args: Object.fromEntries(
+          v.args.filter((a) => a.key && a.value).map((a) => [a.key, a.value]),
+        ),
+      })
+    },
+    onSuccess: (res) => {
+      if (res.status === "ok") {
+        toast.success(`Saved group "${res.group?.name}"`)
+        setGroupName("")
+        qc.invalidateQueries({ queryKey: ["groups"] })
+      } else {
+        toast.error(res.message || "Save failed")
+      }
+    },
+    onError: (e) => toast.error(`Save failed: ${e.message}`),
+  })
+
+  const fire = useMutation({
+    mutationFn: (id: number) => api.fireGroup(id),
+    onSuccess: (res) => {
+      for (const r of res.results)
+        if (r.status !== "ok") toast.error(`${r.spider}: ${r.message || "failed"}`)
+      if (res.scheduled > 0) toast.success(`Fired ${res.scheduled}/${res.total} job(s)`)
+      else toast.error("Nothing fired")
+    },
+    onError: (e) => toast.error(`Fire failed: ${e.message}`),
+  })
+
+  const del = useMutation({
+    mutationFn: (id: number) => api.deleteGroup(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["groups"] }),
   })
 
   return (
@@ -330,10 +380,84 @@ export default function GroupPage() {
                     ? `Create ${selected.length} task(s)`
                     : `Run ${selected.length} spider(s)`}
               </Button>
+
+              <div className="flex gap-2 pt-1">
+                <Input
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  placeholder="group name"
+                  className="h-8 text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0"
+                  disabled={!groupName.trim() || !project || selected.length === 0 || save.isPending}
+                  onClick={() => save.mutate()}
+                >
+                  <Save className="size-3.5" /> Save
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Save this set as a reusable group, then fire it by id via curl.
+              </p>
             </CardContent>
           </Card>
         </form>
       </Form>
+
+      {groups.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Saved groups</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {groups.map((g) => (
+              <div key={g.id} className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="font-medium">{g.name}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {g.project} · {g.spiders.length} spider(s) · nodes {g.nodes.join(",")}
+                  </span>
+                  <div className="ml-auto flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7"
+                      disabled={fire.isPending}
+                      onClick={() => fire.mutate(g.id)}
+                    >
+                      <Play className="size-3.5" /> Fire now
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-destructive hover:text-destructive"
+                      onClick={() => del.mutate(g.id)}
+                      aria-label="Delete group"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <Collapsible>
+                  <CollapsibleTrigger className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                    <TerminalSquare className="size-3.5" /> Fire curl
+                    <ChevronDown className="size-3" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-1.5">
+                    <pre className="overflow-auto rounded-lg bg-background/70 p-2.5 font-mono text-[11px] leading-relaxed">
+                      {`curl -X POST '${window.location.origin}${g.fire_path}' -b cookies.txt`}
+                    </pre>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

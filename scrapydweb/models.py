@@ -121,6 +121,27 @@ class Project(Base):
         return '<Project #%s %s (%s)>' % (self.id, self.name, self.deploy_source)
 
 
+class JobGroup(Base):
+    """A saved, reusable group of spiders to run together. Fired by id (like a
+    timer task's 'fire now'), it schedules every spider on its nodes with the
+    shared version/settings/arguments."""
+    __tablename__ = 'job_group'
+
+    id = Column(BigInt, primary_key=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    project = Column(String(255), nullable=False)
+    version = Column(String(255), nullable=True)          # None -> latest
+    spiders_json = Column(Text(), nullable=False, default='[]')   # json list of spider names
+    nodes_json = Column(Text(), nullable=False, default='[1]')    # json list of node numbers
+    settings_json = Column(Text(), nullable=False, default='[]')  # json list of {key,value}
+    args_json = Column(Text(), nullable=False, default='{}')      # json dict of spider args
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return '<JobGroup #%s %s>' % (self.id, self.name)
+
+
 class DeployRecord(Base):
     """Audit log: one row per deploy attempt, whatever the entry point."""
     __tablename__ = 'deploy_record'
