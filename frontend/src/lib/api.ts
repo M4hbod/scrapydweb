@@ -487,6 +487,21 @@ export const api = {
     if (vsj) url += `${encodeURIComponent(vsj)}/`
     return postJSON<Record<string, unknown>>(url)
   },
+  scheduleGroup: (node: number, body: Record<string, unknown>) =>
+    postJSONBody<{
+      status: string
+      scheduled: number
+      total: number
+      mode?: string
+      results: {
+        node?: number
+        spider: string
+        status: string
+        jobid?: string
+        task_id?: number
+        message?: string
+      }[]
+    }>(`/${node}/schedule/group/`, body),
   taskAction: (node: number, action: string, taskId?: number) =>
     postJSON<Record<string, unknown>>(
       taskId != null ? `/${node}/tasks/xhr/${action}/${taskId}/` : `/${node}/tasks/xhr/${action}/`,
