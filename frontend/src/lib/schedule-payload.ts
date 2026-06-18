@@ -73,6 +73,23 @@ export function buildScheduleForm(v: ScheduleFormValues): Record<string, string>
   return out
 }
 
+// Equivalent request against the scrapydweb backend (not scrapyd): the same
+// /{node}/schedule/group/ call the UI makes, so it recreates this exact job or
+// timer task. Works for a single spider (Run Spider) or many (Run Group).
+export function backendGroupCurl(
+  node: number,
+  body: Record<string, unknown>,
+  origin: string,
+): string {
+  const json = JSON.stringify(body, null, 2)
+  return [
+    `curl -X POST '${origin}/${node}/schedule/group/' \\`,
+    `  -H 'Authorization: Bearer sdw_…' \\`, // create one on the API Tokens page
+    `  -H 'Content-Type: application/json' \\`,
+    `  -d '${json}'`,
+  ].join("\n")
+}
+
 function shellQuote(s: string) {
   return /[^A-Za-z0-9_\-.=:/@]/.test(s) ? `'${s.replace(/'/g, "'\\''")}'` : s
 }

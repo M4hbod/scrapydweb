@@ -9,13 +9,26 @@
 import hashlib
 import hmac
 import os
+import secrets
 import time
 
 SESSION_COOKIE = 'swsession'
 SESSION_TTL = 14 * 24 * 3600  # 14 days
 INTERNAL_TOKEN_HEADER = 'X-Scrapydweb-Token'
 
+# Personal access tokens for curl/API use (GitHub-PAT style: shown once, stored
+# hashed). Format: 'sdw_<urlsafe-random>'. Only the sha256 is persisted.
+API_TOKEN_PREFIX = 'sdw_'
+
 _SCRYPT = dict(n=2 ** 14, r=8, p=1)
+
+
+def generate_api_token():
+    return API_TOKEN_PREFIX + secrets.token_urlsafe(32)
+
+
+def hash_api_token(raw):
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
 def hash_password(password):

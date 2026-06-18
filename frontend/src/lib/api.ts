@@ -124,6 +124,28 @@ export interface TaskRow {
   prev_run_result: string
 }
 
+export interface ApiToken {
+  id: number
+  name: string
+  prefix: string
+  created_at: string | null
+  last_used_at: string | null
+}
+
+export interface JobGroup {
+  id: number
+  name: string
+  project: string
+  version: string
+  spiders: string[]
+  nodes: number[]
+  settings: { key: string; value: string }[]
+  args: Record<string, string>
+  fire_path: string
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface TasksResponse {
   status: string
   page: number
@@ -487,6 +509,48 @@ export const api = {
     if (vsj) url += `${encodeURIComponent(vsj)}/`
     return postJSON<Record<string, unknown>>(url)
   },
+  listTokens: () => getJSON<{ status: string; tokens: ApiToken[] }>("/api/tokens"),
+  createToken: (name: string) =>
+    postJSONBody<{ status: string; message?: string; plaintext?: string; token?: ApiToken }>(
+      "/api/tokens",
+      { name },
+    ),
+  deleteToken: (id: number) =>
+    deleteJSON<{ status: string; message?: string }>(`/api/tokens/${id}`),
+  listGroups: () => getJSON<{ status: string; groups: JobGroup[] }>("/api/groups"),
+  createGroup: (body: Record<string, unknown>) =>
+    postJSONBody<{ status: string; message?: string; group?: JobGroup }>("/api/groups", body),
+  updateGroup: (id: number, body: Record<string, unknown>) =>
+    putJSON<{ status: string; message?: string; group?: JobGroup }>(`/api/groups/${id}`, body),
+  deleteGroup: (id: number) =>
+    deleteJSON<{ status: string; message?: string }>(`/api/groups/${id}`),
+  scheduleSavedGroup: (id: number, body: Record<string, unknown>) =>
+    postJSONBody<{ status: string; scheduled: number; total: number; results: unknown[] }>(
+      `/api/groups/${id}/schedule`,
+      body,
+    ),
+  fireGroup: (id: number) =>
+    postJSONBody<{
+      status: string
+      scheduled: number
+      total: number
+      results: { node?: number; spider: string; status: string; jobid?: string; message?: string }[]
+    }>(`/api/groups/${id}/fire`, {}),
+  scheduleGroup: (node: number, body: Record<string, unknown>) =>
+    postJSONBody<{
+      status: string
+      scheduled: number
+      total: number
+      mode?: string
+      results: {
+        node?: number
+        spider: string
+        status: string
+        jobid?: string
+        task_id?: number
+        message?: string
+      }[]
+    }>(`/${node}/schedule/group/`, body),
   taskAction: (node: number, action: string, taskId?: number) =>
     postJSON<Record<string, unknown>>(
       taskId != null ? `/${node}/tasks/xhr/${action}/${taskId}/` : `/${node}/tasks/xhr/${action}/`,
