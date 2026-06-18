@@ -4,10 +4,15 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { Crosshair, Layers } from "lucide-react"
+import { ChevronDown, Crosshair, Layers, TerminalSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Form } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -25,7 +30,7 @@ import { NodeMultiSelect } from "@/components/node-multi-select"
 import { ProjectComboBox } from "@/components/project-combobox"
 import { api, getJSON } from "@/lib/api"
 import { useNode } from "@/lib/node-context"
-import { LATEST } from "@/lib/schedule-payload"
+import { LATEST, backendGroupCurl } from "@/lib/schedule-payload"
 
 const schema = z.object({
   project: z.string().min(1, "Pick a project"),
@@ -48,6 +53,34 @@ const schema = z.object({
   second: z.string(),
 })
 type GroupFormValues = z.infer<typeof schema>
+
+// the JSON body POSTed to /{node}/schedule/group/ (shared by submit + curl preview)
+function toBody(v: GroupFormValues): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    project: v.project,
+    _version: v._version,
+    spiders: v.spiders,
+    nodes: v.nodes,
+    jobid: v.jobid,
+    settings: v.settings.filter((s) => s.key && s.value),
+    args: Object.fromEntries(v.args.filter((a) => a.key && a.value).map((a) => [a.key, a.value])),
+  }
+  if (v.mode === "cron")
+    Object.assign(body, {
+      trigger: "cron",
+      action: v.action,
+      name: v.name,
+      year: v.year,
+      month: v.month,
+      day: v.day,
+      week: v.week,
+      day_of_week: v.day_of_week,
+      hour: v.hour,
+      minute: v.minute,
+      second: v.second,
+    })
+  return body
+}
 
 export default function GroupPage() {
   const { node } = useNode()
@@ -107,31 +140,7 @@ export default function GroupPage() {
     )
 
   const run = useMutation({
-    mutationFn: (v: GroupFormValues) =>
-      api.scheduleGroup(node, {
-        project: v.project,
-        _version: v._version,
-        spiders: v.spiders,
-        nodes: v.nodes,
-        jobid: v.jobid,
-        settings: v.settings.filter((s) => s.key && s.value),
-        args: Object.fromEntries(v.args.filter((a) => a.key && a.value).map((a) => [a.key, a.value])),
-        ...(v.mode === "cron"
-          ? {
-              trigger: "cron",
-              action: v.action,
-              name: v.name,
-              year: v.year,
-              month: v.month,
-              day: v.day,
-              week: v.week,
-              day_of_week: v.day_of_week,
-              hour: v.hour,
-              minute: v.minute,
-              second: v.second,
-            }
-          : {}),
-      }),
+    mutationFn: (v: GroupFormValues) => api.scheduleGroup(node, toBody(v)),
     onSuccess: (res, v) => {
       for (const r of res.results)
         if (r.status !== "ok")
@@ -293,6 +302,27 @@ export default function GroupPage() {
               <Row k="Spiders" v={String(selected.length)} />
               <Row k="Nodes" v={String(form.watch("nodes").length)} />
               <Row k="When" v={mode === "cron" ? "timer" : "now"} />
+
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                  <TerminalSquare className="size-3.5" /> Equivalent curl
+                  <ChevronDown className="size-3" />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-2">
+                  <pre className="overflow-auto rounded-lg bg-background/70 p-2.5 font-mono text-[11px] leading-relaxed">
+                    {backendGroupCurl(
+                      form.watch("nodes")?.[0] ?? node,
+                      toBody(form.watch() as GroupFormValues),
+                      window.location.origin,
+                    )}
+                  </pre>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    hits the scrapydweb backend; log in first (POST /api/auth/login) and pass the
+                    session cookie
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
+
               <Button type="submit" disabled={run.isPending} className="mt-2">
                 {run.isPending
                   ? "Scheduling…"

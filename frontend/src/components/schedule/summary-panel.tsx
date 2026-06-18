@@ -14,7 +14,7 @@ import { useCronPreview } from "./cron-preview"
 import { api } from "@/lib/api"
 import {
   LATEST,
-  buildCurlPreview,
+  backendGroupCurl,
   sanitizeJobid,
   type ScheduleFormValues,
 } from "@/lib/schedule-payload"
@@ -26,7 +26,6 @@ export function SummaryPanel({ pending }: { pending: boolean }) {
 
   const allNodes = nodesData?.nodes ?? []
   const selected = allNodes.filter((n) => (v.nodes ?? []).includes(n.node))
-  const firstServer = selected[0]?.server ?? "<scrapyd>"
   const settings = (v.settings ?? []).filter((s) => s.key && s.value)
   const args = (v.args ?? []).filter((a) => a.key && a.value)
   const cron = v.mode === "cron"
@@ -46,6 +45,32 @@ export function SummaryPanel({ pending }: { pending: boolean }) {
   )
 
   const issues = Object.keys(form.formState.errors).length
+
+  // the same scrapydweb request the page submits, recreating this exact job/task
+  const curlNode = v.nodes?.[0] ?? 1
+  const curlBody: Record<string, unknown> = {
+    project: v.project || "",
+    _version: v._version || LATEST,
+    spiders: v.spider ? [v.spider] : [],
+    nodes: v.nodes ?? [],
+    jobid: v.jobid || "",
+    settings,
+    args: Object.fromEntries(args.map((a) => [a.key, a.value])),
+  }
+  if (cron)
+    Object.assign(curlBody, {
+      trigger: "cron",
+      action: v.action,
+      name: v.name,
+      year: v.year,
+      month: v.month,
+      day: v.day,
+      week: v.week,
+      day_of_week: v.day_of_week,
+      hour: v.hour,
+      minute: v.minute,
+      second: v.second,
+    })
 
   return (
     <Card className="gap-3 lg:sticky lg:top-20 lg:self-start">
@@ -141,10 +166,10 @@ export function SummaryPanel({ pending }: { pending: boolean }) {
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">
             <pre className="overflow-auto rounded-lg bg-background/70 p-2.5 font-mono text-[11px] leading-relaxed">
-              {buildCurlPreview(v, firstServer)}
+              {backendGroupCurl(curlNode, curlBody, window.location.origin)}
             </pre>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              basic-auth credentials are added server-side
+              hits the scrapydweb backend; log in first (POST /api/auth/login) and pass the session cookie
             </p>
           </CollapsibleContent>
         </Collapsible>
