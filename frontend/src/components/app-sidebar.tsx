@@ -3,6 +3,7 @@ import {
   Activity,
   Bell,
   FolderGit2,
+  KeyRound,
   Layers,
   LayoutDashboard,
   PlayCircle,
@@ -31,6 +32,7 @@ const NAV = [
   { title: "Deploy", url: "/deploy", icon: Rocket },
   { title: "Projects", url: "/projects", icon: FolderGit2 },
   { title: "Alerts", url: "/alerts", icon: Bell },
+  { title: "API Tokens", url: "/tokens", icon: KeyRound },
 ]
 
 export function AppSidebar() {

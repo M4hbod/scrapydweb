@@ -190,6 +190,12 @@ def create_app(test_config=None):
                 supplied = request.headers.get('X-Deploy-Token', '')
                 if configured and supplied and _sec.compare_digest(supplied, configured):
                     return await call_next(request)
+            # Personal access token (curl/API): 'Authorization: Bearer sdw_...'
+            authz = request.headers.get('Authorization', '')
+            if authz.startswith('Bearer '):
+                raw = authz[7:].strip()
+                if raw and await _valid_api_token(raw):
+                    return await call_next(request)
             token = request.cookies.get(SESSION_COOKIE, '')
             if verify_session_token(token, st.settings['SECRET_KEY']) is None:
                 # first run (no admin yet): open -- the SPA forces the setup screen.
@@ -210,6 +216,24 @@ def create_app(test_config=None):
             async with _SL() as s:
                 n = (await s.execute(_sel(_f.count()).select_from(_U))).scalar() or 0
             return n > 0
+        except Exception:
+            return False
+
+    async def _valid_api_token(raw):
+        from datetime import datetime as _dt
+        from sqlalchemy import select as _sel
+        from .auth import hash_api_token
+        from .db import SessionLocal as _SL
+        from .models import ApiToken as _T
+        try:
+            async with _SL() as s:
+                tok = (await s.execute(
+                    _sel(_T).filter_by(token_hash=hash_api_token(raw)))).scalar_one_or_none()
+                if tok is None:
+                    return False
+                tok.last_used_at = _dt.now()
+                await s.commit()
+            return True
         except Exception:
             return False
 
