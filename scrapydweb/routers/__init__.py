@@ -17,13 +17,14 @@ def register_routers(app):
     app.include_router(metadata.router)
     app.include_router(settings.router)
     app.include_router(api.router)
-    from . import alerts, deploy, deploy_ci, groups, log, projects, schedule, tasks, webhooks
+    from . import alerts, deploy, deploy_ci, groups, log, projects, schedule, tasks, tokens, webhooks
     app.include_router(log.router)
     app.include_router(alerts.router)
     app.include_router(deploy.router)
     app.include_router(deploy_ci.router)
     app.include_router(projects.router)
     app.include_router(groups.router)
+    app.include_router(tokens.router)
     app.include_router(webhooks.router)
     app.include_router(schedule.router)
     app.include_router(tasks.router)

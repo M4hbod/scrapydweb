@@ -121,6 +121,22 @@ class Project(Base):
         return '<Project #%s %s (%s)>' % (self.id, self.name, self.deploy_source)
 
 
+class ApiToken(Base):
+    """A personal access token for curl/API use. Only the sha256 hash is stored;
+    the plaintext is shown once at creation."""
+    __tablename__ = 'api_token'
+
+    id = Column(BigInt, primary_key=True)
+    name = Column(String(255), nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    prefix = Column(String(16), nullable=False)              # display hint, e.g. 'sdw_AbCd…'
+    created_at = Column(DateTime, default=datetime.now)
+    last_used_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return '<ApiToken #%s %s>' % (self.id, self.name)
+
+
 class JobGroup(Base):
     """A saved, reusable group of spiders to run together. Fired by id (like a
     timer task's 'fire now'), it schedules every spider on its nodes with the

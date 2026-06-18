@@ -169,7 +169,7 @@ export function SummaryPanel({ pending }: { pending: boolean }) {
               {backendGroupCurl(curlNode, curlBody, window.location.origin)}
             </pre>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              hits the scrapydweb backend; log in first (POST /api/auth/login) and pass the session cookie
+              hits the scrapydweb backend; create a token on the API Tokens page and pass it as the Bearer header
             </p>
           </CollapsibleContent>
         </Collapsible>

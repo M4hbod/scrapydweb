@@ -84,8 +84,8 @@ export function backendGroupCurl(
   const json = JSON.stringify(body, null, 2)
   return [
     `curl -X POST '${origin}/${node}/schedule/group/' \\`,
+    `  -H 'Authorization: Bearer sdw_…' \\`, // create one on the API Tokens page
     `  -H 'Content-Type: application/json' \\`,
-    `  -b cookies.txt \\`, // session cookie from POST /api/auth/login
     `  -d '${json}'`,
   ].join("\n")
 }

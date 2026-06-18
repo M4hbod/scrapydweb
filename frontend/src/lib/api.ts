@@ -124,6 +124,14 @@ export interface TaskRow {
   prev_run_result: string
 }
 
+export interface ApiToken {
+  id: number
+  name: string
+  prefix: string
+  created_at: string | null
+  last_used_at: string | null
+}
+
 export interface JobGroup {
   id: number
   name: string
@@ -501,6 +509,14 @@ export const api = {
     if (vsj) url += `${encodeURIComponent(vsj)}/`
     return postJSON<Record<string, unknown>>(url)
   },
+  listTokens: () => getJSON<{ status: string; tokens: ApiToken[] }>("/api/tokens"),
+  createToken: (name: string) =>
+    postJSONBody<{ status: string; message?: string; plaintext?: string; token?: ApiToken }>(
+      "/api/tokens",
+      { name },
+    ),
+  deleteToken: (id: number) =>
+    deleteJSON<{ status: string; message?: string }>(`/api/tokens/${id}`),
   listGroups: () => getJSON<{ status: string; groups: JobGroup[] }>("/api/groups"),
   createGroup: (body: Record<string, unknown>) =>
     postJSONBody<{ status: string; message?: string; group?: JobGroup }>("/api/groups", body),
