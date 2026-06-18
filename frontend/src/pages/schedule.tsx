@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { Form } from "@/components/ui/form"
+import { Skeleton } from "@/components/ui/skeleton"
 import { ArgsCard } from "@/components/schedule/args-card"
 import { SettingsCard } from "@/components/schedule/settings-card"
 import { SummaryPanel } from "@/components/schedule/summary-panel"
@@ -127,56 +128,75 @@ function taskToForm(t: TaskRow): ScheduleFormValues {
   }
 }
 
+function blankForm(node: number, params: URLSearchParams): ScheduleFormValues {
+  return {
+    project: params.get("project") ?? "",
+    _version: params.get("version") ?? LATEST,
+    spider: params.get("spider") ?? "",
+    jobid: "",
+    nodes: [node],
+    settings: [],
+    args: [],
+    mode: params.get("timer") === "1" ? "cron" : "now",
+    name: "",
+    action: "add_fire",
+    year: "*",
+    month: "*",
+    day: "*",
+    week: "*",
+    day_of_week: "*",
+    hour: "*",
+    minute: "0",
+    second: "0",
+  }
+}
+
+// Loader: when editing, wait for the task before mounting the form so it
+// initialises with real values (no async race that left the selects empty).
 export default function SchedulePage() {
   const { node } = useNode()
-  const navigate = useNavigate()
   const [params] = useSearchParams()
   const editId = params.get("taskId") ? Number(params.get("taskId")) : null
 
-  // when editing, pull the task off the list and prefill the form once it loads
   const { data: taskList } = useQuery({
     queryKey: ["tasks", node],
     queryFn: () => api.tasks(node),
     enabled: editId != null,
   })
-  const editTask = React.useMemo(
-    () => (editId != null && taskList ? taskList.tasks.find((x) => x.id === editId) : undefined),
-    [editId, taskList],
-  )
-  // RHF `values` reactively syncs the form once the task arrives (and keeps the
-  // user's own edits) -- more reliable than a reset-in-effect that races the
-  // project/version/spider option queries.
-  const editValues = React.useMemo(() => (editTask ? taskToForm(editTask) : undefined), [editTask])
+
+  if (editId != null && !taskList) {
+    return (
+      <div className="mx-auto max-w-6xl">
+        <Skeleton className="h-96 rounded-xl" />
+      </div>
+    )
+  }
+
+  const editTask = editId != null ? taskList!.tasks.find((x) => x.id === editId) : undefined
+  const initial = editTask ? taskToForm(editTask) : blankForm(node, params)
+
+  return <ScheduleForm key={editId ?? "new"} node={node} editId={editId} initial={initial} />
+}
+
+function ScheduleForm({
+  node,
+  editId,
+  initial,
+}: {
+  node: number
+  editId: number | null
+  initial: ScheduleFormValues
+}) {
+  const navigate = useNavigate()
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(schema),
     mode: "onChange",
-    values: editValues,
-    resetOptions: { keepDirtyValues: true },
-    defaultValues: {
-      project: params.get("project") ?? "",
-      _version: params.get("version") ?? LATEST,
-      spider: params.get("spider") ?? "",
-      jobid: "",
-      nodes: [node],
-      settings: [],
-      args: [],
-      mode: params.get("timer") === "1" ? "cron" : "now",
-      name: "",
-      action: "add_fire",
-      year: "*",
-      month: "*",
-      day: "*",
-      week: "*",
-      day_of_week: "*",
-      hour: "*",
-      minute: "0",
-      second: "0",
-    },
+    defaultValues: initial,
   })
 
-  // keep the default node selection in sync with the topbar (only while untouched,
-  // and never when editing -- the task carries its own node selection)
+  // keep the default node selection in sync with the topbar (create only; an
+  // edited task carries its own node selection)
   React.useEffect(() => {
     if (editId == null && !form.formState.dirtyFields.nodes) form.setValue("nodes", [node])
     // eslint-disable-next-line react-hooks/exhaustive-deps
