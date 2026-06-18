@@ -169,6 +169,19 @@ def test_group_save_list_fire_delete(client, fake_scrapyd):
     assert not any(x['id'] == gid for x in client.get('/api/groups').json()['groups'])
 
 
+def test_group_schedule_creates_tasks(client, fake_scrapyd):
+    _deploy(client)
+    g = client.post('/api/groups', json=dict(
+        name='gs', project=PROJECT, spiders=[SPIDER], nodes=[1])).json()
+    gid = g['group']['id']
+    js = client.post('/api/groups/%s/schedule' % gid,
+                     json=dict(action='add_pause', minute='15')).json()
+    assert js['status'] == 'ok' and js['scheduled'] == 1, js
+    t = next(t for t in client.get('/api/1/tasks/').json()['tasks']
+             if t['name'] == 'gs_%s' % SPIDER)
+    assert t['trigger'] == 'cron' and t['minute'] == '15'
+
+
 def test_group_requires_spiders(client):
     js = client.post('/api/groups', json=dict(name='bad', project=PROJECT, spiders=[])).json()
     assert js['status'] == 'error'
