@@ -359,7 +359,7 @@ export default function GroupsPage() {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-1.5">
                   <pre className="overflow-auto rounded-lg bg-background/70 p-2.5 font-mono text-[11px] leading-relaxed">
-                    {`curl -X POST '${window.location.origin}${g.fire_path}' -b cookies.txt`}
+                    {`curl -X POST '${window.location.origin}${g.fire_path}' \\\n  -H 'Authorization: Bearer sdw_…'`}
                   </pre>
                 </CollapsibleContent>
               </Collapsible>
