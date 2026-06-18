@@ -529,13 +529,13 @@ export const api = {
       `/api/groups/${id}/schedule`,
       body,
     ),
-  fireGroup: (id: number) =>
+  fireGroup: (id: number, body: Record<string, unknown> = {}) =>
     postJSONBody<{
       status: string
       scheduled: number
       total: number
       results: { node?: number; spider: string; status: string; jobid?: string; message?: string }[]
-    }>(`/api/groups/${id}/fire`, {}),
+    }>(`/api/groups/${id}/fire`, body),
   scheduleGroup: (node: number, body: Record<string, unknown>) =>
     postJSONBody<{
       status: string
