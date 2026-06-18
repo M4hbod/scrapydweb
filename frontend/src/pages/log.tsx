@@ -226,6 +226,7 @@ function LogStats({
   return (
     <StatsPanel
       stats={s}
+      args={data.args}
       logparserValid={data.logparser_valid}
       urlSource={data.url_source}
       footer={
@@ -323,16 +324,19 @@ function ProgressChart({ datas }: { datas?: [string, number, number, number, num
 
 export function StatsPanel({
   stats: s,
+  args,
   logparserValid,
   urlSource,
   footer,
 }: {
   stats: NonNullable<LogStatsResponse["stats"]>
+  args?: Record<string, string>
   logparserValid: boolean
   urlSource?: string
   footer?: React.ReactNode
 }) {
   const categories = Object.entries(s.log_categories ?? {})
+  const argEntries = Object.entries(args ?? {})
 
   return (
     <div className="flex flex-col gap-4">
@@ -346,6 +350,24 @@ export function StatsPanel({
           tone={s.finish_reason === "finished" ? "ok" : s.finish_reason === "N/A" ? "muted" : "warn"}
         />
       </div>
+
+      {argEntries.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Arguments</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+              {argEntries.map(([k, v]) => (
+                <React.Fragment key={k}>
+                  <dt className="text-chart-3">{k}</dt>
+                  <dd className="break-all text-foreground/80">{String(v)}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </CardContent>
+        </Card>
+      )}
 
       <ProgressChart datas={s.datas} />
 

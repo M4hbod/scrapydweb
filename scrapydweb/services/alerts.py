@@ -35,6 +35,49 @@ def _cancel_job(server, auth, project, job, times=1):
             logger.warning('cancel %s/%s on %s failed: %s', project, job, server, err)
 
 
+def _group_notify(server, project, job):
+    """Notify config of the JobGroup that spawned this job, or None if not linked."""
+    from sqlalchemy import select
+    from ..db_sync import SyncSessionLocal
+    from ..models import JobGroup, JobVersion
+    try:
+        with SyncSessionLocal() as s:
+            jv = s.execute(select(JobVersion).filter_by(
+                server=server, project=project, job=job)).scalar_one_or_none()
+            if not jv or not jv.group_id:
+                return None
+            g = s.execute(select(JobGroup).filter_by(id=jv.group_id)).scalar_one_or_none()
+            if not g:
+                return None
+            try:
+                channels = json.loads(g.notify_channels_json or '[]')
+            except ValueError:
+                channels = []
+            return dict(enabled=bool(g.notify_enabled), channels=channels)
+    except Exception:
+        return None
+
+
+def _finish_report(settings, node, row, stats):
+    """Rich end-of-run report: success summary or failure + reason."""
+    fr = stats.get('finish_reason') or 'finished'
+    pages, items, runtime = stats.get('pages'), stats.get('items'), stats.get('runtime')
+    cats = stats.get('log_categories') or {}
+    errors = ((cats.get('critical_logs') or {}).get('count', 0) or 0) + \
+             ((cats.get('error_logs') or {}).get('count', 0) or 0)
+    url = '%s/log/%s/stats/%s/%s/%s' % (
+        settings.get('URL_SCRAPYDWEB', 'http://127.0.0.1:5000'),
+        node, row.project, row.spider, row.job)
+    if fr == 'finished' and not errors:
+        subject = '✅ %s/%s finished' % (row.project, row.spider)
+        body = 'items: %s · pages: %s · %s' % (items, pages, runtime or 'N/A')
+    else:
+        subject = '❌ %s/%s %s' % (row.project, row.spider, fr)
+        body = 'items: %s · pages: %s · errors: %s' % (items, pages, errors)
+    text = '%s\n%s\njob %s\n%s' % (subject, body, row.job, url)
+    return subject, text
+
+
 def evaluate_alerts(settings, server, node, auth, row, stats, running):
     """Evaluate triggers for one job after a fresh parse. Mutates row.alert_state."""
     state = {}
@@ -64,10 +107,23 @@ def evaluate_alerts(settings, server, node, auth, row, stats, running):
             stop_action = 'stop'
 
     finished = bool(stats.get('finish_reason') and stats.get('finish_reason') != 'N/A')
-    if finished and settings.get('ON_JOB_FINISHED', False) and not state.get('finished'):
-        state['finished'] = True
-        dirty = True
-        lines.append('job finished: %s' % stats.get('finish_reason'))
+    if finished and not state.get('finished'):
+        # group-linked jobs use the group's own notify config: a rich report sent
+        # straight to the group's channels, always (no working-time gate). Other
+        # jobs fall back to the global ON_JOB_FINISHED toggle, folded into the
+        # combined message below.
+        grp = _group_notify(server, row.project, row.job)
+        if grp is not None:
+            state['finished'] = True
+            dirty = True
+            if grp['enabled']:
+                subject, text = _finish_report(settings, node, row, stats)
+                notify.dispatch(settings, subject, text, channels=grp['channels'] or None)
+        elif settings.get('ON_JOB_FINISHED', False):
+            state['finished'] = True
+            dirty = True
+            lines.append('finished: %s (items: %s, pages: %s)'
+                         % (stats.get('finish_reason'), stats.get('items'), stats.get('pages')))
 
     interval = settings.get('ON_JOB_RUNNING_INTERVAL', 0) or 0
     if running and interval > 0:

@@ -73,11 +73,14 @@ CHANNELS = {
 }
 
 
-def dispatch(settings, subject, text):
-    """Send to every channel whose ENABLE_<CH>_ALERT flag is on. Returns {channel: (ok, result)}."""
+def dispatch(settings, subject, text, channels=None):
+    """Send the alert. With `channels` (a list subset of slack/telegram/email) send to
+    exactly those; otherwise send to every channel whose ENABLE_<CH>_ALERT flag is on.
+    Returns {channel: (ok, result)}."""
     results = {}
     for name, fn in CHANNELS.items():
-        if settings.get('ENABLE_%s_ALERT' % name.upper(), False):
+        wanted = (name in channels) if channels else settings.get('ENABLE_%s_ALERT' % name.upper(), False)
+        if wanted:
             try:
                 results[name] = fn(settings, subject, text)
             except Exception as err:

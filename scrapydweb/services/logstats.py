@@ -62,7 +62,8 @@ def _collect_server(s, server, auth, extensions, settings=None, node=1, alert_ru
         return 0
 
     from ..routers.jobs import _parse  # lazy: routers/__init__ has side effects
-    jobs = [j for j in _parse(r.text) if j['start']]
+    all_jobs = _parse(r.text)
+    jobs = [j for j in all_jobs if j['start']]
 
     rows = {(row.project, row.spider, row.job): row
             for row in s.query(JobStats).filter_by(server=server).all()}
@@ -126,6 +127,19 @@ def _collect_server(s, server, auth, extensions, settings=None, node=1, alert_ru
                 evaluate_alerts(eff, server, node, auth, row, stats, running)
             except Exception as err:
                 logger.warning('alert evaluation failed for %s: %s', key, err)
+
+    # keep the per-node Job table fresh (status, pages/items, finish, update_time)
+    # from the same parse -- no browser page view or self-HTTP snapshot needed
+    try:
+        from .jobs_sync import sync_server_jobs
+        liststats = {}
+        for (p, sp, jb), row in rows.items():
+            liststats.setdefault(p, {}).setdefault(sp, {})[jb] = dict(
+                pages=row.pages, items=row.items, runtime=row.runtime,
+                latest_log_time=row.latest_log_time)
+        sync_server_jobs(s, server, node, all_jobs, liststats)
+    except Exception as err:
+        logger.warning('jobs sync failed for %s: %s', server, err)
     return parsed
 
 

@@ -261,8 +261,10 @@ async def schedule_run(request: Request, node: int, ctx: NodeContext = Depends(g
             server = servers[first - 1]
             version = await resolve_version(app.state.http_client, server, auth,
                                             data['project'], data.get('_version'))
+            _args = {k: v for k, v in data.items() if k not in
+                     ('project', '_version', 'spider', 'jobid', 'setting', 'filename', 'checked_amount')}
             await record_job_version(server, data['project'], data['spider'],
-                                     js['jobid'], version, source='run')
+                                     js['jobid'], version, source='run', args=_args)
 
     # update history
     try:
@@ -393,7 +395,7 @@ async def schedule_group(request: Request, node: int, ctx: NodeContext = Depends
 
 
 async def run_group_now(app, servers, auths, project, version, spiders, nodes,
-                        setting_list, extra_args, base):
+                        setting_list, extra_args, base, group_id=None):
     """Schedule every (node, spider) on scrapyd right now; returns per-job results.
     Shared by the Run Group run-now path and saved-group 'fire'."""
     client = app.state.http_client
@@ -421,7 +423,8 @@ async def run_group_now(app, servers, auths, project, version, spiders, nodes,
             if js.get('status') == OK and js.get('jobid'):
                 try:
                     rv = await resolve_version(client, server, auth, project, data.get('_version'))
-                    await record_job_version(server, project, spider, js['jobid'], rv, source='run')
+                    await record_job_version(server, project, spider, js['jobid'], rv,
+                                             source='run', args=extra_args, group_id=group_id)
                 except Exception:
                     pass
             results.append(dict(node=n, spider=spider, status=js.get('status'),
@@ -437,7 +440,7 @@ def cron_fields_from(body):
 
 
 async def create_group_tasks(project, version, spiders, nodes, setting_list, extra_args, base,
-                             *, name, action, cron):
+                             *, name, action, cron, group_id=None):
     """Create one timer task per spider sharing the schedule + args; returns results.
     Shared by the Run Group cron path and a saved group's 'schedule'."""
     sa = json_dumps({'setting': setting_list, **extra_args}, sort_keys=True, indent=None)
@@ -448,6 +451,7 @@ async def create_group_tasks(project, version, spiders, nodes, setting_list, ext
             task.project, task.version, task.spider = project, version, spider
             task.jobid = re.sub(LEGAL_NAME_PATTERN, '-', '%s_%s' % (base, spider))
             task.settings_arguments = sa
+            task.group_id = group_id
             task.selected_nodes = json_dumps(nodes)
             task.name = ('%s_%s' % (name, spider)) if name else None
             task.trigger = 'cron'

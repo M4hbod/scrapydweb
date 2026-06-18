@@ -127,11 +127,13 @@ class LogHandler:
         self._update_kwargs()
         if self.as_json:
             finished = bool(self.job_finished or self.job_key in job_finished_key_dict[self.node])
-            from ..services.job_versions import version_for_job
+            from ..services.job_versions import args_for_job, version_for_job
             payload = dict(status='ok', opt=self.opt, node=self.node, project=self.project,
                            spider=self.spider, job=self.job_without_ext, finished=finished,
                            version=await version_for_job(self.ctx.SCRAPYD_SERVER, self.project,
                                                          self.job_without_ext),
+                           args=await args_for_job(self.ctx.SCRAPYD_SERVER, self.project,
+                                                   self.job_without_ext),
                            url_source=self.kwargs.get('url_source', ''))
             if self.utf8_realtime:
                 payload['text'] = self.text

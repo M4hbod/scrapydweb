@@ -208,6 +208,44 @@ def test_group_requires_spiders(client):
     assert js['status'] == 'error'
 
 
+def test_group_fire_records_and_serves_args(client, fake_scrapyd):
+    _deploy(client)
+    g = client.post('/api/groups', json=dict(
+        name='ar', project=PROJECT, spiders=[SPIDER], nodes=[1])).json()
+    gid = g['group']['id']
+    fired = client.post('/api/groups/%s/fire' % gid,
+                        json=dict(args={'crawl_item_ids': '["id-1"]'})).json()
+    assert fired['scheduled'] == 1
+    jid = fired['results'][0]['jobid']
+    jobs = client.get('/api/1/jobs/').json()['jobs']
+    j = next(j for j in jobs if j['job'] == jid)
+    assert j['args'].get('crawl_item_ids') == '["id-1"]'
+
+
+def test_group_notify_config_persists(client):
+    g = client.post('/api/groups', json=dict(
+        name='nt', project=PROJECT, spiders=['x'], nodes=[1],
+        notify_enabled=True, notify_channels=['slack', 'bogus'])).json()
+    assert g['group']['notify_enabled'] is True
+    assert g['group']['notify_channels'] == ['slack']  # unknown channel dropped
+
+
+def test_finish_report_formatter():
+    from scrapydweb.services.alerts import _finish_report
+
+    class _Row:
+        project, spider, job = 'p', 's', 'j'
+
+    settings = {'URL_SCRAPYDWEB': 'http://x'}
+    subj, text = _finish_report(settings, 1, _Row(), dict(
+        finish_reason='finished', pages=5, items=2, runtime='0:01:00', log_categories={}))
+    assert subj.startswith('✅') and 'items: 2' in text and 'pages: 5' in text
+    subj, text = _finish_report(settings, 1, _Row(), dict(
+        finish_reason='closespider_errorcount', pages=0, items=0,
+        log_categories={'error_logs': {'count': 3}}))
+    assert subj.startswith('❌') and 'errors: 3' in text
+
+
 def test_schedule_history(client):
     r = client.get('/schedule/history/')
     assert r.status_code == 200

@@ -124,6 +124,21 @@ function ProjectCard({
     onError: (e) => toast.error(`Delete failed: ${e.message}`),
   })
 
+  const prune = useMutation({
+    mutationFn: async () => {
+      const all = versions?.versions ?? []
+      const old = all.slice(0, -1) // scrapyd lists ascending -> keep the last (latest)
+      for (const v of old)
+        await postJSON(`/${node}/api/delversion/${encodeURIComponent(project)}/${encodeURIComponent(v)}/`)
+      return old.length
+    },
+    onSuccess: (n) => {
+      toast.success(`Deleted ${n} old version${n === 1 ? "" : "s"}`)
+      qc.invalidateQueries({ queryKey: ["versions", node, project] })
+    },
+    onError: (e) => toast.error(`Prune failed: ${e.message}`),
+  })
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <Card className="gap-3">
@@ -180,6 +195,24 @@ function ProjectCard({
         <CollapsibleContent>
           <CardContent className="flex flex-col gap-2">
             {isLoading && <Skeleton className="h-16 rounded-lg" />}
+            {(versions?.versions ?? []).length > 1 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 self-start gap-1.5 text-xs text-destructive hover:text-destructive"
+                disabled={prune.isPending}
+                onClick={async () =>
+                  (await confirmDialog({
+                    title: `Delete old versions of "${project}"?`,
+                    description: `Keeps only the latest version on node ${node}; removes the other ${(versions?.versions ?? []).length - 1}.`,
+                    confirmLabel: "Delete old versions",
+                    destructive: true,
+                  })) && prune.mutate()
+                }
+              >
+                <Trash2 className="size-3" /> {prune.isPending ? "Deleting…" : "Delete old versions (keep latest)"}
+              </Button>
+            )}
             {(versions?.versions ?? []).map((v) => (
               <VersionRow key={v} node={node} project={project} version={v} onDelete={() => del.mutate({ version: v })} />
             ))}

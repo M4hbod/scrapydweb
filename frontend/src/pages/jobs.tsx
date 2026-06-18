@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -146,6 +147,35 @@ export default function JobsPage() {
             </span>
           ) : (
             <span className="font-mono text-xs text-muted-foreground/50">–</span>
+          )
+        },
+      },
+      {
+        id: "args",
+        header: "Args",
+        cell: ({ row }) => {
+          const args = row.original.args || {}
+          const keys = Object.keys(args)
+          if (keys.length === 0)
+            return <span className="font-mono text-xs text-muted-foreground/50">–</span>
+          return (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-6 px-2 font-mono text-[11px]">
+                  {keys.length} arg{keys.length > 1 ? "s" : ""}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto max-w-md">
+                <div className="flex flex-col gap-1 font-mono text-[11px]">
+                  {keys.map((k) => (
+                    <div key={k} className="flex gap-2">
+                      <span className="text-chart-3">{k}</span>
+                      <span className="break-all text-foreground/80">{String(args[k])}</span>
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           )
         },
       },

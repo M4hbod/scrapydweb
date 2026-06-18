@@ -6,7 +6,7 @@ import re
 
 from ..common import handle_metadata, handle_slash, json_dumps, session
 from ..models import Base, create_jobs_table
-from ..scheduler import scheduler
+from ..scheduler import scheduler, system_scheduler
 from ..utils.setup_database import test_database_url_pattern
 from ..vars import (ALLOWED_SCRAPYD_LOG_EXTENSIONS, ALERT_TRIGGER_KEYS,
                     SCHEDULER_STATE_DICT, STATE_PAUSED, STATE_RUNNING,
@@ -237,6 +237,11 @@ def check_app_config(config):
         scheduler.resume()
     logger.info("Scheduler for timer tasks: %s", SCHEDULER_STATE_DICT[scheduler.state])
 
+    # System scheduler is always running -- maintenance/freshness must not pause
+    # when the user pauses timer tasks.
+    if not system_scheduler.running:
+        system_scheduler.start()
+
     check_assert('JOBS_SNAPSHOT_INTERVAL', 300, int)
     check_assert('CHECK_TASK_RESULT_INTERVAL', 300, int)
     check_assert('KEEP_TASK_RESULT_LIMIT', 1000, int)
@@ -283,35 +288,24 @@ def ensure_jobs_tables(config):
 
 def _remove_system_job(job_id):
     try:
-        scheduler.remove_job(job_id, jobstore='memory')
+        system_scheduler.remove_job(job_id)
     except Exception:
         pass
 
 
 def register_system_jobs(config):
-    """(Re-)register the jobs_snapshot / delete_task_result interval jobs.
+    """(Re-)register the maintenance interval jobs on the always-on system
+    scheduler (so they keep running even when timer tasks are paused).
 
     Shared by boot (check_app_config) and the live settings apply engine.
-    An interval of 0 removes a previously registered job.
+    An interval of 0 removes a previously registered job. The Job table is kept
+    fresh by the stats collector itself (services.logstats.sync_server_jobs),
+    so no separate self-HTTP jobs-snapshot is needed.
     """
     from ..auth import INTERNAL_TOKEN_HEADER
     headers = {INTERNAL_TOKEN_HEADER: config.get('_INTERNAL_TOKEN', '')}
     url_scrapydweb = config.get('URL_SCRAPYDWEB') or handle_metadata().get(
         'url_scrapydweb', 'http://127.0.0.1:5000')
-
-    interval = config.get('JOBS_SNAPSHOT_INTERVAL', 300)
-    if interval:
-        kwargs = dict(
-            url_jobs=url_scrapydweb + '/api/1/jobs/',
-            headers=headers,
-            nodes=list(range(1, len(config['SCRAPYD_SERVERS']) + 1)),
-        )
-        logger.info(scheduler.add_job(id='jobs_snapshot', replace_existing=True,
-                                      func=create_jobs_snapshot, args=None, kwargs=kwargs,
-                                      trigger='interval', seconds=interval,
-                                      misfire_grace_time=60, coalesce=True, max_instances=1, jobstore='memory'))
-    else:
-        _remove_system_job('jobs_snapshot')
 
     interval = config.get('CHECK_TASK_RESULT_INTERVAL', 300)
     if interval and (config.get('KEEP_TASK_RESULT_LIMIT', 1000)
@@ -321,23 +315,24 @@ def register_system_jobs(config):
                                                        '/1/tasks/xhr/delete/1/2/'),
             headers=headers,
         )
-        logger.info(scheduler.add_job(id='delete_task_result', replace_existing=True,
-                                      func=delete_task_result, args=None, kwargs=kwargs,
-                                      trigger='interval', seconds=interval,
-                                      misfire_grace_time=60, coalesce=True, max_instances=1, jobstore='memory'))
+        logger.info(system_scheduler.add_job(id='delete_task_result', replace_existing=True,
+                                             func=delete_task_result, args=None, kwargs=kwargs,
+                                             trigger='interval', seconds=interval,
+                                             misfire_grace_time=60, coalesce=True, max_instances=1))
     else:
         _remove_system_job('delete_task_result')
 
     interval = config.get('STATS_COLLECT_INTERVAL', 10)
     if interval:
         from ..services.logstats import collect_all
-        logger.info(scheduler.add_job(id='stats_collector', replace_existing=True,
-                                      func=collect_all, args=None, kwargs=dict(config=config),
-                                      trigger='interval', seconds=interval,
-                                      misfire_grace_time=60, coalesce=True,
-                                      max_instances=1, jobstore='memory'))
+        logger.info(system_scheduler.add_job(id='stats_collector', replace_existing=True,
+                                             func=collect_all, args=None, kwargs=dict(config=config),
+                                             trigger='interval', seconds=interval,
+                                             misfire_grace_time=60, coalesce=True,
+                                             max_instances=1))
     else:
         _remove_system_job('stats_collector')
+    _remove_system_job('jobs_snapshot')  # superseded by the collector's in-process Job sync
 
 
 def check_scrapyd_servers(config, check_connectivity=None):

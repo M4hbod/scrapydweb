@@ -36,6 +36,13 @@ job_defaults = {'coalesce': True, 'max_instances': 1}
 # and fire across test client lifecycles (execute_task is a sync function).
 scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults)
 
+# Separate always-on scheduler for system/maintenance jobs (stats collector, jobs
+# snapshot, task-result cleanup). Kept independent of `scheduler` so pausing timer
+# tasks does NOT pause data freshness. Memory jobstore only.
+system_scheduler = BackgroundScheduler(
+    jobstores={'memory': MemoryJobStore()}, executors={'default': ThreadPoolExecutor(10)},
+    job_defaults=job_defaults)
+
 
 def _my_listener(event):
     msg = "%s: \n%s\n" % (EVENT_MAP[event.code], pformat(vars(event), indent=4))
