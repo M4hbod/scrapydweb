@@ -11,7 +11,9 @@ import {
   Layers,
   Pencil,
   Play,
+  Plus,
   Save,
+  SlidersHorizontal,
   TerminalSquare,
   Trash2,
   X,
@@ -145,7 +147,8 @@ export default function GroupsPage() {
   })
 
   const fire = useMutation({
-    mutationFn: (id: number) => api.fireGroup(id),
+    mutationFn: ({ id, body }: { id: number; body?: Record<string, unknown> }) =>
+      api.fireGroup(id, body),
     onSuccess: (res) => {
       if (res.scheduled > 0) toast.success(`Fired ${res.scheduled}/${res.total} job(s)`)
       else toast.error("Nothing fired")
@@ -183,6 +186,7 @@ export default function GroupsPage() {
   }
 
   const [schedFor, setSchedFor] = React.useState<JobGroup | null>(null)
+  const [runFor, setRunFor] = React.useState<JobGroup | null>(null)
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
@@ -331,8 +335,11 @@ export default function GroupsPage() {
                   {g.nodes.join(",")}
                 </span>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button type="button" size="sm" className="h-7" disabled={fire.isPending} onClick={() => fire.mutate(g.id)}>
+                  <Button type="button" size="sm" className="h-7" disabled={fire.isPending} onClick={() => fire.mutate({ id: g.id })}>
                     <Play className="size-3.5" /> Fire now
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setRunFor(g)}>
+                    <SlidersHorizontal className="size-3.5" /> Run with args
                   </Button>
                   <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setSchedFor(g)}>
                     <CalendarClock className="size-3.5" /> Schedule
@@ -359,7 +366,7 @@ export default function GroupsPage() {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-1.5">
                   <pre className="overflow-auto rounded-lg bg-background/70 p-2.5 font-mono text-[11px] leading-relaxed">
-                    {`curl -X POST '${window.location.origin}${g.fire_path}' \\\n  -H 'Authorization: Bearer sdw_…'`}
+                    {`curl -X POST '${window.location.origin}${g.fire_path}' \\\n  -H 'Authorization: Bearer sdw_…' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"args":{"crawl_item_ids":"[\\"id-001\\"]"}}'`}
                   </pre>
                 </CollapsibleContent>
               </Collapsible>
@@ -368,9 +375,93 @@ export default function GroupsPage() {
         </CardContent>
       </Card>
 
+      <RunDialog group={runFor} onClose={() => setRunFor(null)} />
       <ScheduleDialog group={schedFor} onClose={() => setSchedFor(null)} qc={qc} />
       {dialog}
     </div>
+  )
+}
+
+type Row = { key: string; value: string }
+const rowsToArgs = (rows: Row[]) =>
+  Object.fromEntries(rows.filter((r) => r.key && r.value).map((r) => [r.key, r.value]))
+
+function ArgRows({ rows, setRows }: { rows: Row[]; setRows: (r: Row[]) => void }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((r, i) => (
+        <div key={i} className="flex gap-2">
+          <Input
+            className="h-8 font-mono text-xs"
+            placeholder="key (e.g. crawl_item_ids)"
+            value={r.key}
+            onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))}
+          />
+          <Input
+            className="h-8 font-mono text-xs"
+            placeholder={'value (e.g. ["id-001"])'}
+            value={r.value}
+            onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={() => setRows(rows.filter((_, j) => j !== i))}
+            aria-label="Remove"
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 self-start"
+        onClick={() => setRows([...rows, { key: "", value: "" }])}
+      >
+        <Plus className="size-3.5" /> Add arg
+      </Button>
+    </div>
+  )
+}
+
+function RunDialog({ group, onClose }: { group: JobGroup | null; onClose: () => void }) {
+  const [rows, setRows] = React.useState<Row[]>([{ key: "", value: "" }])
+
+  const mut = useMutation({
+    mutationFn: () => api.fireGroup(group!.id, { args: rowsToArgs(rows) }),
+    onSuccess: (res) => {
+      if (res.scheduled > 0) toast.success(`Fired ${res.scheduled}/${res.total} job(s)`)
+      else toast.error("Nothing fired")
+      onClose()
+    },
+    onError: (e) => toast.error(`Fire failed: ${e.message}`),
+  })
+
+  return (
+    <Dialog open={!!group} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Run "{group?.name}" with args</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Override or add arguments for this run only (e.g. <code>crawl_item_ids</code>). Applied to
+          every spider in the group on top of its saved args.
+        </p>
+        <ArgRows rows={rows} setRows={setRows} />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => mut.mutate()} disabled={mut.isPending}>
+            <Play className="size-4" /> Fire now
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -391,10 +482,18 @@ function ScheduleDialog({
     day_of_week: "*",
   })
   const [action, setAction] = React.useState("add")
+  const [rows, setRows] = React.useState<Row[]>([{ key: "", value: "" }])
 
   const mut = useMutation({
     mutationFn: () =>
-      api.scheduleSavedGroup(group!.id, { ...cron, year: "*", week: "*", second: "0", action }),
+      api.scheduleSavedGroup(group!.id, {
+        ...cron,
+        year: "*",
+        week: "*",
+        second: "0",
+        action,
+        args: rowsToArgs(rows),
+      }),
     onSuccess: (res) => {
       if (res.scheduled > 0) toast.success(`Created ${res.scheduled} timer task(s)`)
       else toast.error("Nothing scheduled")
@@ -440,6 +539,10 @@ function ScheduleDialog({
               <SelectItem value="add_fire">schedule + run now</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="grid gap-1">
+          <Label className="text-xs">Extra arguments (optional)</Label>
+          <ArgRows rows={rows} setRows={setRows} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

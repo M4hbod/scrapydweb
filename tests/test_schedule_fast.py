@@ -182,6 +182,27 @@ def test_group_schedule_creates_tasks(client, fake_scrapyd):
     assert t['trigger'] == 'cron' and t['minute'] == '15'
 
 
+def test_group_call_args_override(client, fake_scrapyd):
+    import json as _json
+    _deploy(client)
+    g = client.post('/api/groups', json=dict(
+        name='ov', project=PROJECT, spiders=[SPIDER], nodes=[1], args={'base': '1'})).json()
+    gid = g['group']['id']
+    # schedule with a per-call arg -> task carries saved + override args
+    js = client.post('/api/groups/%s/schedule' % gid,
+                     json=dict(action='add_pause', minute='5',
+                               args={'crawl_item_ids': '["id1"]'})).json()
+    assert js['scheduled'] == 1, js
+    t = next(t for t in client.get('/api/1/tasks/').json()['tasks']
+             if t['name'] == 'ov_%s' % SPIDER)
+    sa = _json.loads(t['settings_arguments'])
+    assert sa.get('base') == '1' and sa.get('crawl_item_ids') == '["id1"]'
+    # fire with a per-call arg
+    f = client.post('/api/groups/%s/fire' % gid,
+                    json=dict(args={'crawl_item_ids': '["id2"]'})).json()
+    assert f['status'] == 'ok' and f['scheduled'] == 1
+
+
 def test_group_requires_spiders(client):
     js = client.post('/api/groups', json=dict(name='bad', project=PROJECT, spiders=[])).json()
     assert js['status'] == 'error'
