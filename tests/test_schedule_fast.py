@@ -116,6 +116,39 @@ def test_timer_task_edit_updates_in_place(client, fake_scrapyd):
     assert row['minute'] == '30'
 
 
+def test_schedule_group_fans_out(client, fake_scrapyd):
+    _deploy(client)
+    js = client.post('/1/schedule/group/', json=dict(
+        project=PROJECT, _version=cst.DEFAULT_LATEST_VERSION, spiders=[SPIDER],
+        nodes=[1], jobid='grp', settings=[{'key': 'CLOSESPIDER_TIMEOUT', 'value': '20'}],
+        args={'crawl_item_ids': '["id-001"]'})).json()
+    assert js['status'] == 'ok', js
+    assert js['scheduled'] == 1 and js['total'] == 1
+    r = js['results'][0]
+    assert r['spider'] == SPIDER and r['status'] == cst.OK
+    assert r['jobid'].startswith('grp_')
+    # the job actually lands on the (fake) scrapyd
+    assert any(j['job'] == r['jobid'] for j in client.get('/api/1/jobs/').json()['jobs'])
+
+
+def test_schedule_group_cron_creates_tasks(client, fake_scrapyd):
+    _deploy(client)
+    js = client.post('/1/schedule/group/', json=dict(
+        project=PROJECT, _version=cst.DEFAULT_LATEST_VERSION, spiders=[SPIDER],
+        nodes=[1], trigger='cron', action='add_pause', name='grp', minute='30')).json()
+    assert js['status'] == 'ok' and js['mode'] == 'cron', js
+    assert js['scheduled'] == 1
+    # the timer task now exists
+    tasks = client.get('/api/1/tasks/').json()['tasks']
+    t = next(t for t in tasks if t['spider'] == SPIDER and t['name'] == 'grp_%s' % SPIDER)
+    assert t['trigger'] == 'cron' and t['minute'] == '30'
+
+
+def test_schedule_group_requires_spiders(client, fake_scrapyd):
+    js = client.post('/1/schedule/group/', json=dict(project=PROJECT, spiders=[])).json()
+    assert js['status'] == 'error'
+
+
 def test_schedule_history(client):
     r = client.get('/schedule/history/')
     assert r.status_code == 200
