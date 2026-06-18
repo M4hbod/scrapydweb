@@ -504,8 +504,15 @@ export const api = {
   listGroups: () => getJSON<{ status: string; groups: JobGroup[] }>("/api/groups"),
   createGroup: (body: Record<string, unknown>) =>
     postJSONBody<{ status: string; message?: string; group?: JobGroup }>("/api/groups", body),
+  updateGroup: (id: number, body: Record<string, unknown>) =>
+    putJSON<{ status: string; message?: string; group?: JobGroup }>(`/api/groups/${id}`, body),
   deleteGroup: (id: number) =>
     deleteJSON<{ status: string; message?: string }>(`/api/groups/${id}`),
+  scheduleSavedGroup: (id: number, body: Record<string, unknown>) =>
+    postJSONBody<{ status: string; scheduled: number; total: number; results: unknown[] }>(
+      `/api/groups/${id}/schedule`,
+      body,
+    ),
   fireGroup: (id: number) =>
     postJSONBody<{
       status: string

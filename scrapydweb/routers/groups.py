@@ -134,6 +134,31 @@ async def groups_delete(group_id: int):
     return JSONResponse({'status': 'ok'})
 
 
+@router.post('/{group_id:int}/schedule', name='groups.schedule')
+async def groups_schedule(request: Request, group_id: int):
+    """Create a timer task per spider in the group (cron). Body: cron fields +
+    optional action (add|add_fire|add_pause) and name."""
+    from .schedule import create_group_tasks, cron_fields_from
+
+    body = await request.json()
+    async with SessionLocal() as s:
+        g = (await s.execute(select(JobGroup).filter_by(id=group_id))).scalar_one_or_none()
+        if g is None:
+            return JSONResponse({'status': 'error', 'message': 'group not found'}, status_code=404)
+        snap = group_dict(g)
+
+    setting_list = ['%s=%s' % (s['key'], s['value']) for s in snap['settings']]
+    extra_args = {str(k): str(v) for k, v in snap['args'].items()}
+    base = re.sub(LEGAL_NAME_PATTERN, '-', snap['name'])
+    created = await create_group_tasks(
+        snap['project'], snap['version'] or DEFAULT_LATEST_VERSION, snap['spiders'],
+        snap['nodes'], setting_list, extra_args, base,
+        name=(body.get('name') or snap['name']), action=body.get('action') or 'add',
+        cron=cron_fields_from(body))
+    scheduled = sum(1 for c in created if c['status'] == 'ok')
+    return JSONResponse(dict(status='ok', scheduled=scheduled, total=len(created), results=created))
+
+
 @router.post('/{group_id:int}/fire', name='groups.fire')
 async def groups_fire(request: Request, group_id: int):
     """Run every spider in the group right now (the curl-by-id 'fire')."""
