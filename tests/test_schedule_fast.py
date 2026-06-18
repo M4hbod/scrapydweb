@@ -149,6 +149,31 @@ def test_schedule_group_requires_spiders(client, fake_scrapyd):
     assert js['status'] == 'error'
 
 
+def test_group_save_list_fire_delete(client, fake_scrapyd):
+    _deploy(client)
+    g = client.post('/api/groups', json=dict(
+        name='g1', project=PROJECT, spiders=[SPIDER], nodes=[1],
+        settings=[{'key': 'CLOSESPIDER_TIMEOUT', 'value': '20'}],
+        args={'crawl_item_ids': '["id-001"]'})).json()
+    assert g['status'] == 'ok', g
+    gid = g['group']['id']
+    assert g['group']['fire_path'] == '/api/groups/%s/fire' % gid
+    # listed
+    assert any(x['id'] == gid for x in client.get('/api/groups').json()['groups'])
+    # fire by id -> schedules now
+    js = client.post('/api/groups/%s/fire' % gid, json={}).json()
+    assert js['status'] == 'ok' and js['scheduled'] == 1, js
+    assert any(j['spider'] == SPIDER for j in client.get('/api/1/jobs/').json()['jobs'])
+    # delete
+    assert client.delete('/api/groups/%s' % gid).json()['status'] == 'ok'
+    assert not any(x['id'] == gid for x in client.get('/api/groups').json()['groups'])
+
+
+def test_group_requires_spiders(client):
+    js = client.post('/api/groups', json=dict(name='bad', project=PROJECT, spiders=[])).json()
+    assert js['status'] == 'error'
+
+
 def test_schedule_history(client):
     r = client.get('/schedule/history/')
     assert r.status_code == 200
