@@ -10,6 +10,8 @@ import JobsPage from "@/pages/jobs"
 import TasksPage from "@/pages/tasks"
 import LogPage from "@/pages/log"
 import SchedulePage from "@/pages/schedule"
+import GroupPage from "@/pages/group"
+import TokensPage from "@/pages/tokens"
 import DeployPage from "@/pages/deploy"
 import CodePage from "@/pages/code"
 import ProjectsPage from "@/pages/projects"
@@ -32,6 +34,8 @@ export default function App() {
         <Route path="log/:node/:opt/:project/:spider/:job" element={<LogPage />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="schedule" element={<SchedulePage />} />
+        <Route path="group" element={<GroupPage />} />
+        <Route path="tokens" element={<TokensPage />} />
         <Route path="deploy" element={<DeployPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="code/:project/:version" element={<CodePage />} />

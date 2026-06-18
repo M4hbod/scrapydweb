@@ -116,6 +116,77 @@ def test_timer_task_edit_updates_in_place(client, fake_scrapyd):
     assert row['minute'] == '30'
 
 
+def test_schedule_group_fans_out(client, fake_scrapyd):
+    _deploy(client)
+    js = client.post('/1/schedule/group/', json=dict(
+        project=PROJECT, _version=cst.DEFAULT_LATEST_VERSION, spiders=[SPIDER],
+        nodes=[1], jobid='grp', settings=[{'key': 'CLOSESPIDER_TIMEOUT', 'value': '20'}],
+        args={'crawl_item_ids': '["id-001"]'})).json()
+    assert js['status'] == 'ok', js
+    assert js['scheduled'] == 1 and js['total'] == 1
+    r = js['results'][0]
+    assert r['spider'] == SPIDER and r['status'] == cst.OK
+    assert r['jobid'].startswith('grp_')
+    # the job actually lands on the (fake) scrapyd
+    assert any(j['job'] == r['jobid'] for j in client.get('/api/1/jobs/').json()['jobs'])
+
+
+def test_schedule_group_cron_creates_tasks(client, fake_scrapyd):
+    _deploy(client)
+    js = client.post('/1/schedule/group/', json=dict(
+        project=PROJECT, _version=cst.DEFAULT_LATEST_VERSION, spiders=[SPIDER],
+        nodes=[1], trigger='cron', action='add_pause', name='grp', minute='30')).json()
+    assert js['status'] == 'ok' and js['mode'] == 'cron', js
+    assert js['scheduled'] == 1
+    # the timer task now exists
+    tasks = client.get('/api/1/tasks/').json()['tasks']
+    t = next(t for t in tasks if t['spider'] == SPIDER and t['name'] == 'grp_%s' % SPIDER)
+    assert t['trigger'] == 'cron' and t['minute'] == '30'
+
+
+def test_schedule_group_requires_spiders(client, fake_scrapyd):
+    js = client.post('/1/schedule/group/', json=dict(project=PROJECT, spiders=[])).json()
+    assert js['status'] == 'error'
+
+
+def test_group_save_list_fire_delete(client, fake_scrapyd):
+    _deploy(client)
+    g = client.post('/api/groups', json=dict(
+        name='g1', project=PROJECT, spiders=[SPIDER], nodes=[1],
+        settings=[{'key': 'CLOSESPIDER_TIMEOUT', 'value': '20'}],
+        args={'crawl_item_ids': '["id-001"]'})).json()
+    assert g['status'] == 'ok', g
+    gid = g['group']['id']
+    assert g['group']['fire_path'] == '/api/groups/%s/fire' % gid
+    # listed
+    assert any(x['id'] == gid for x in client.get('/api/groups').json()['groups'])
+    # fire by id -> schedules now
+    js = client.post('/api/groups/%s/fire' % gid, json={}).json()
+    assert js['status'] == 'ok' and js['scheduled'] == 1, js
+    assert any(j['spider'] == SPIDER for j in client.get('/api/1/jobs/').json()['jobs'])
+    # delete
+    assert client.delete('/api/groups/%s' % gid).json()['status'] == 'ok'
+    assert not any(x['id'] == gid for x in client.get('/api/groups').json()['groups'])
+
+
+def test_group_schedule_creates_tasks(client, fake_scrapyd):
+    _deploy(client)
+    g = client.post('/api/groups', json=dict(
+        name='gs', project=PROJECT, spiders=[SPIDER], nodes=[1])).json()
+    gid = g['group']['id']
+    js = client.post('/api/groups/%s/schedule' % gid,
+                     json=dict(action='add_pause', minute='15')).json()
+    assert js['status'] == 'ok' and js['scheduled'] == 1, js
+    t = next(t for t in client.get('/api/1/tasks/').json()['tasks']
+             if t['name'] == 'gs_%s' % SPIDER)
+    assert t['trigger'] == 'cron' and t['minute'] == '15'
+
+
+def test_group_requires_spiders(client):
+    js = client.post('/api/groups', json=dict(name='bad', project=PROJECT, spiders=[])).json()
+    assert js['status'] == 'error'
+
+
 def test_schedule_history(client):
     r = client.get('/schedule/history/')
     assert r.status_code == 200

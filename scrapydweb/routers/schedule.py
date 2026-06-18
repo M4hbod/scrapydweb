@@ -21,7 +21,7 @@ from ..context import DEFAULT_LATEST_VERSION, NodeContext, get_node_context
 from ..db import SessionLocal
 from ..models import Task
 from ..scheduler import scheduler
-from ..services.scrapyd import request_scrapyd
+from ..services.scrapyd import OK, request_scrapyd
 from ..services.tasks import execute_task
 from ..vars import LEGAL_NAME_PATTERN, RUN_SPIDER_HISTORY_LOG, SCHEDULE_ADDITIONAL, SCHEDULE_PATH, STRICT_NAME_PATTERN, UA_DICT
 from ..services.deploy_utils import slot
@@ -343,8 +343,141 @@ async def schedule_task(request: Request, node: int, ctx: NodeContext = Depends(
     return JSONResponse(js)
 
 
+async def schedule_group(request: Request, node: int, ctx: NodeContext = Depends(get_node_context)):
+    """Fan a single schedule out to a group of spiders, sharing version/args/nodes.
+
+    JSON body: {project, _version?, spiders: [...], nodes: [...]?, settings: [{key,value}],
+    args: {k: v}, jobid?}. Each (node, spider) is POSTed to scrapyd's schedule.json.
+    """
+    app = request.app
+    body = await request.json()
+    project = (body.get('project') or '').strip()
+    version = body.get('_version') or DEFAULT_LATEST_VERSION
+    spiders = [s for s in (body.get('spiders') or []) if s]
+    nodes = body.get('nodes') or [node]
+    settings = body.get('settings') or []
+    args = body.get('args') or {}
+    jobid_base = (body.get('jobid') or '').strip()
+    if not project or not spiders:
+        return JSONResponse({'status': 'error', 'message': 'project and spiders are required'},
+                            status_code=200)
+
+    servers = ctx.SCRAPYD_SERVERS
+    auths = app.state.settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None] * len(servers)
+
+    setting_list = []
+    for s in settings:
+        k, v = str(s.get('key', '')).strip(), str(s.get('value', '')).strip()
+        if k and v:
+            setting_list.append('%s=%s' % (k, v))
+    extra_args = {str(k): str(v) for k, v in args.items()
+                  if re.match(r'^[a-zA-Z_][0-9a-zA-Z_]*$', str(k))}
+
+    base = re.sub(LEGAL_NAME_PATTERN, '-', jobid_base) if jobid_base else get_now_string()
+    valid_nodes = [n for n in nodes if isinstance(n, int) and 1 <= n <= len(servers)]
+
+    # cron mode: create one timer task per spider (sharing the schedule + args)
+    if (body.get('trigger') or '') == 'cron':
+        cron = cron_fields_from(body)
+        created = await create_group_tasks(
+            project, version, spiders, valid_nodes, setting_list, extra_args, base,
+            name=(body.get('name') or '').strip(), action=body.get('action') or 'add', cron=cron)
+        scheduled = sum(1 for c in created if c['status'] == 'ok')
+        return JSONResponse(dict(status='ok', mode='cron', scheduled=scheduled,
+                                 total=len(created), results=created))
+
+    results = await run_group_now(app, servers, auths, project, version,
+                                  spiders, valid_nodes, setting_list, extra_args, base)
+    scheduled = sum(1 for r in results if r['status'] == OK)
+    return JSONResponse(dict(status='ok', scheduled=scheduled, total=len(results), results=results))
+
+
+async def run_group_now(app, servers, auths, project, version, spiders, nodes,
+                        setting_list, extra_args, base):
+    """Schedule every (node, spider) on scrapyd right now; returns per-job results.
+    Shared by the Run Group run-now path and saved-group 'fire'."""
+    client = app.state.http_client
+    from ..services.job_versions import record_job_version, resolve_version
+    results = []
+    for n in nodes:
+        if not isinstance(n, int) or n < 1 or n > len(servers):
+            continue
+        server = servers[n - 1]
+        auth = auths[n - 1] if n - 1 < len(auths) else None
+        url = 'http://%s/schedule.json' % server
+        for spider in spiders:
+            data = {'project': project, 'spider': spider}
+            if version and version != DEFAULT_LATEST_VERSION:
+                data['_version'] = version
+            data['jobid'] = re.sub(LEGAL_NAME_PATTERN, '-', '%s_%s' % (base, spider))
+            if setting_list:
+                data['setting'] = list(setting_list)
+            data.update(extra_args)
+            try:
+                status_code, js = await request_scrapyd(client, url, data=data, auth=auth, as_json=True)
+            except Exception as err:
+                results.append(dict(node=n, spider=spider, status='error', message=str(err)))
+                continue
+            if js.get('status') == OK and js.get('jobid'):
+                try:
+                    rv = await resolve_version(client, server, auth, project, data.get('_version'))
+                    await record_job_version(server, project, spider, js['jobid'], rv, source='run')
+                except Exception:
+                    pass
+            results.append(dict(node=n, spider=spider, status=js.get('status'),
+                                jobid=js.get('jobid'), message=js.get('message')))
+    return results
+
+
+def cron_fields_from(body):
+    """Pull the 8 cron fields from a request body, with scrapyd-ish defaults."""
+    return {k: (str(body.get(k)).strip() if body.get(k) else d) for k, d in
+            (('year', '*'), ('month', '*'), ('day', '*'), ('week', '*'),
+             ('day_of_week', '*'), ('hour', '*'), ('minute', '0'), ('second', '0'))}
+
+
+async def create_group_tasks(project, version, spiders, nodes, setting_list, extra_args, base,
+                             *, name, action, cron):
+    """Create one timer task per spider sharing the schedule + args; returns results.
+    Shared by the Run Group cron path and a saved group's 'schedule'."""
+    sa = json_dumps({'setting': setting_list, **extra_args}, sort_keys=True, indent=None)
+    created = []
+    for spider in spiders:
+        async with SessionLocal() as session:
+            task = Task()
+            task.project, task.version, task.spider = project, version, spider
+            task.jobid = re.sub(LEGAL_NAME_PATTERN, '-', '%s_%s' % (base, spider))
+            task.settings_arguments = sa
+            task.selected_nodes = json_dumps(nodes)
+            task.name = ('%s_%s' % (name, spider)) if name else None
+            task.trigger = 'cron'
+            for fld, val in cron.items():
+                setattr(task, fld, val)
+            task.start_date = task.end_date = task.timezone = None
+            task.jitter, task.misfire_grace_time, task.max_instances = 0, 600, 1
+            task.coalesce = 'True'
+            task.update_time = datetime.now()
+            session.add(task)
+            await session.commit()
+            tid = task.id
+        td = dict(trigger='cron', id=str(tid), name=task.name or 'task_%s' % tid,
+                  replace_existing=True, jitter=0, misfire_grace_time=600,
+                  coalesce=True, max_instances=1, **cron)
+        if action == 'add_fire':
+            td['next_run_time'] = datetime.now()
+        elif action == 'add_pause':
+            td['next_run_time'] = None
+        try:
+            scheduler.add_job(func=execute_task, args=None, kwargs=dict(task_id=tid), **td)
+            created.append(dict(spider=spider, task_id=tid, status='ok'))
+        except Exception as err:
+            created.append(dict(spider=spider, task_id=tid, status='error', message=str(err)))
+    return created
+
+
 # Specific routes MUST be registered before the generic /schedule/{project}/ variants.
 router.add_api_route('/{node:int}/schedule/check/', schedule_check, methods=['POST'], name='schedule.check')
 router.add_api_route('/{node:int}/schedule/run/', schedule_run, methods=['POST'], name='schedule.run')
 router.add_api_route('/{node:int}/schedule/xhr/{filename}/', schedule_xhr, methods=['GET', 'POST'], name='schedule.xhr')
 router.add_api_route('/{node:int}/schedule/task/', schedule_task, methods=['POST'], name='schedule.task')
+router.add_api_route('/{node:int}/schedule/group/', schedule_group, methods=['POST'], name='schedule.group')
