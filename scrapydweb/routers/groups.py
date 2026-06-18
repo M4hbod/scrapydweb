@@ -134,6 +134,22 @@ async def groups_delete(group_id: int):
     return JSONResponse({'status': 'ok'})
 
 
+def _merged_call_params(snap, body):
+    """Group's saved settings/args, with per-call overrides merged on top (by key).
+    Lets a single fire/schedule pass e.g. crawl_item_ids to the whole group."""
+    settings = {str(s['key']): str(s.get('value', '')) for s in snap['settings'] if s.get('key')}
+    for s in (body.get('settings') or []):
+        if isinstance(s, dict) and s.get('key'):
+            settings[str(s['key'])] = str(s.get('value', ''))
+    setting_list = ['%s=%s' % (k, v) for k, v in settings.items() if v]
+
+    args = {str(k): str(v) for k, v in snap['args'].items()}
+    for k, v in (body.get('args') or {}).items():
+        if re.match(r'^[a-zA-Z_][0-9a-zA-Z_]*$', str(k)):
+            args[str(k)] = str(v)
+    return setting_list, args
+
+
 @router.post('/{group_id:int}/schedule', name='groups.schedule')
 async def groups_schedule(request: Request, group_id: int):
     """Create a timer task per spider in the group (cron). Body: cron fields +
@@ -147,8 +163,7 @@ async def groups_schedule(request: Request, group_id: int):
             return JSONResponse({'status': 'error', 'message': 'group not found'}, status_code=404)
         snap = group_dict(g)
 
-    setting_list = ['%s=%s' % (s['key'], s['value']) for s in snap['settings']]
-    extra_args = {str(k): str(v) for k, v in snap['args'].items()}
+    setting_list, extra_args = _merged_call_params(snap, body)
     base = re.sub(LEGAL_NAME_PATTERN, '-', snap['name'])
     created = await create_group_tasks(
         snap['project'], snap['version'] or DEFAULT_LATEST_VERSION, snap['spiders'],
@@ -161,8 +176,14 @@ async def groups_schedule(request: Request, group_id: int):
 
 @router.post('/{group_id:int}/fire', name='groups.fire')
 async def groups_fire(request: Request, group_id: int):
-    """Run every spider in the group right now (the curl-by-id 'fire')."""
+    """Run every spider in the group right now (the curl-by-id 'fire'). Optional
+    JSON body {args:{...}, settings:[...]} overrides the saved values for this run."""
     from .schedule import run_group_now
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
     async with SessionLocal() as s:
         g = (await s.execute(select(JobGroup).filter_by(id=group_id))).scalar_one_or_none()
@@ -174,8 +195,7 @@ async def groups_fire(request: Request, group_id: int):
     settings = app.state.settings
     servers = settings.get('SCRAPYD_SERVERS', []) or []
     auths = settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None] * len(servers)
-    setting_list = ['%s=%s' % (s['key'], s['value']) for s in snap['settings']]
-    extra_args = {str(k): str(v) for k, v in snap['args'].items()}
+    setting_list, extra_args = _merged_call_params(snap, body)
     base = re.sub(LEGAL_NAME_PATTERN, '-', '%s_%s' % (snap['name'], get_now_string()))
     results = await run_group_now(
         app, servers, auths, snap['project'], snap['version'] or DEFAULT_LATEST_VERSION,
