@@ -364,8 +364,6 @@ async def schedule_group(request: Request, node: int, ctx: NodeContext = Depends
 
     servers = ctx.SCRAPYD_SERVERS
     auths = app.state.settings.get('SCRAPYD_SERVERS_AUTHS', []) or [None] * len(servers)
-    client = app.state.http_client
-    from ..services.job_versions import record_job_version, resolve_version
 
     setting_list = []
     for s in settings:
@@ -421,6 +419,18 @@ async def schedule_group(request: Request, node: int, ctx: NodeContext = Depends
         return JSONResponse(dict(status='ok', mode='cron', scheduled=scheduled,
                                  total=len(created), results=created))
 
+    results = await run_group_now(app, servers, auths, project, version,
+                                  spiders, valid_nodes, setting_list, extra_args, base)
+    scheduled = sum(1 for r in results if r['status'] == OK)
+    return JSONResponse(dict(status='ok', scheduled=scheduled, total=len(results), results=results))
+
+
+async def run_group_now(app, servers, auths, project, version, spiders, nodes,
+                        setting_list, extra_args, base):
+    """Schedule every (node, spider) on scrapyd right now; returns per-job results.
+    Shared by the Run Group run-now path and saved-group 'fire'."""
+    client = app.state.http_client
+    from ..services.job_versions import record_job_version, resolve_version
     results = []
     for n in nodes:
         if not isinstance(n, int) or n < 1 or n > len(servers):
@@ -449,8 +459,7 @@ async def schedule_group(request: Request, node: int, ctx: NodeContext = Depends
                     pass
             results.append(dict(node=n, spider=spider, status=js.get('status'),
                                 jobid=js.get('jobid'), message=js.get('message')))
-    scheduled = sum(1 for r in results if r['status'] == OK)
-    return JSONResponse(dict(status='ok', scheduled=scheduled, total=len(results), results=results))
+    return results
 
 
 # Specific routes MUST be registered before the generic /schedule/{project}/ variants.

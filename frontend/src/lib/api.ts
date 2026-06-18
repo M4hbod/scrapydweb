@@ -124,6 +124,20 @@ export interface TaskRow {
   prev_run_result: string
 }
 
+export interface JobGroup {
+  id: number
+  name: string
+  project: string
+  version: string
+  spiders: string[]
+  nodes: number[]
+  settings: { key: string; value: string }[]
+  args: Record<string, string>
+  fire_path: string
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface TasksResponse {
   status: string
   page: number
@@ -487,6 +501,18 @@ export const api = {
     if (vsj) url += `${encodeURIComponent(vsj)}/`
     return postJSON<Record<string, unknown>>(url)
   },
+  listGroups: () => getJSON<{ status: string; groups: JobGroup[] }>("/api/groups"),
+  createGroup: (body: Record<string, unknown>) =>
+    postJSONBody<{ status: string; message?: string; group?: JobGroup }>("/api/groups", body),
+  deleteGroup: (id: number) =>
+    deleteJSON<{ status: string; message?: string }>(`/api/groups/${id}`),
+  fireGroup: (id: number) =>
+    postJSONBody<{
+      status: string
+      scheduled: number
+      total: number
+      results: { node?: number; spider: string; status: string; jobid?: string; message?: string }[]
+    }>(`/api/groups/${id}/fire`, {}),
   scheduleGroup: (node: number, body: Record<string, unknown>) =>
     postJSONBody<{
       status: string
