@@ -166,7 +166,7 @@ def create_app(test_config=None):
     # shows the create-admin setup screen.
     import re as _re
     _PROTECTED = _re.compile(
-        r'^(/api/(?!auth/)|/\d+/|/tasks/history/|/schedule/history/)')
+        r'^(/api/(?!auth/)|/\d+/|/tasks/history/|/schedule/history/|/metrics$)')
     # GitHub webhook deliveries carry no session; the handler verifies the
     # per-repo HMAC signature (X-Hub-Signature-256) over the raw body itself.
     _WEBHOOK = _re.compile(r'^/api/webhooks/github/\d+$')

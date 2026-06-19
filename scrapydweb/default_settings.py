@@ -254,6 +254,9 @@ SMTP_CONNECTION_TIMEOUT = 30
 # The default is '', which derives the URL from SCRAPYDWEB_BIND:SCRAPYDWEB_PORT.
 URL_SCRAPYDWEB = ''
 
+# Expose a Prometheus exposition at /metrics (scrape it with an API token).
+ENABLE_METRICS = True
+
 # The default is False, set it to True to enable alert via Slack, Telegram, or Email.
 # You have to set up your accounts in the "Send text" section above first.
 ENABLE_SLACK_ALERT = False

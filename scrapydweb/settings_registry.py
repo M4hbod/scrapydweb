@@ -144,6 +144,8 @@ _FIELDS = [
     F('SMTP_OVER_SSL', 'sendtext', 'bool', 'SMTP over SSL'),
     F('SMTP_CONNECTION_TIMEOUT', 'sendtext', 'int', 'SMTP timeout (s)', min=1),
     # ---------------------------------------------------------------- monitor
+    F('ENABLE_METRICS', 'monitor', 'bool', 'Prometheus /metrics endpoint',
+      'Expose Prometheus metrics at /metrics (scrape with an API token).'),
     F('ENABLE_SLACK_ALERT', 'monitor', 'bool', 'Slack alerts'),
     F('ENABLE_TELEGRAM_ALERT', 'monitor', 'bool', 'Telegram alerts'),
     F('ENABLE_EMAIL_ALERT', 'monitor', 'bool', 'Email alerts', validator=_v_email_alert),
