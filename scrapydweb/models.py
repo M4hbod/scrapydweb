@@ -151,6 +151,8 @@ class JobGroup(Base):
     nodes_json = Column(Text(), nullable=False, default='[1]')    # json list of node numbers
     settings_json = Column(Text(), nullable=False, default='[]')  # json list of {key,value}
     args_json = Column(Text(), nullable=False, default='{}')      # json dict of spider args
+    notify_enabled = Column(Boolean, nullable=False, default=False)  # send end-of-run report
+    notify_channels_json = Column(Text(), nullable=False, default='[]')  # subset of slack/telegram/email; [] = global
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -192,6 +194,8 @@ class JobVersion(Base):
     job = Column(String(255), nullable=False)                 # scrapyd jobid
     version = Column(String(255), nullable=False)
     source = Column(String(8), nullable=False, default='run')  # run|task
+    args_json = Column(Text(), nullable=False, default='{}')   # spider args + settings the job ran with
+    group_id = Column(BigInt, nullable=True)                   # JobGroup that spawned it (if any)
     created_at = Column(DateTime, default=datetime.now)
 
     def __repr__(self):
@@ -272,6 +276,7 @@ class Task(Base):
     version = Column(String(255), unique=False, nullable=False)
     spider = Column(String(255), unique=False, nullable=False)
     jobid = Column(String(255), unique=False, nullable=False)
+    group_id = Column(BigInt, nullable=True)  # JobGroup that created this task (if any)
     settings_arguments = Column(Text(), unique=False, nullable=False)
     selected_nodes = Column(Text(), unique=False, nullable=False)
 

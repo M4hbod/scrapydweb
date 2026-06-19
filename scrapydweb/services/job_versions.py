@@ -52,49 +52,86 @@ def resolve_version_sync(server, auth, project, explicit):
         return None
 
 
-def _upsert(session, server, project, spider, job, version, source):
+def _upsert(session, server, project, spider, job, version, source, args_json, group_id):
     row = session.execute(select(JobVersion).filter_by(
         server=server, project=project, job=job)).scalar_one_or_none()
     if row is None:
-        session.add(JobVersion(server=server, project=project, spider=spider,
-                               job=job, version=version, source=source))
+        session.add(JobVersion(server=server, project=project, spider=spider, job=job,
+                               version=version, source=source, args_json=args_json,
+                               group_id=group_id))
     else:
         row.spider, row.version, row.source = spider, version, source
+        if args_json and args_json != '{}':
+            row.args_json = args_json
+        if group_id is not None:
+            row.group_id = group_id
 
 
-async def record_job_version(server, project, spider, job, version, source='run'):
-    """Upsert (server, project, job) -> version; never raises (audit data only)."""
+def _args_json(args):
+    from ..common import json_dumps
+    try:
+        return json_dumps(args or {}, sort_keys=True, indent=None)
+    except Exception:
+        return '{}'
+
+
+async def record_job_version(server, project, spider, job, version, source='run',
+                             args=None, group_id=None):
+    """Upsert (server, project, job) -> version + args + group; never raises."""
     if not (version and job):
         return
     from ..db import SessionLocal, ensure_tables
     try:
         await ensure_tables()
         async with SessionLocal() as s:
-            await s.run_sync(_upsert, server, project, spider, job, version, source)
+            await s.run_sync(_upsert, server, project, spider, job, version, source,
+                             _args_json(args), group_id)
             await s.commit()
     except Exception as err:
         logger.warning('Fail to record job version %s/%s=%s: %s', project, job, version, err)
 
 
-def record_job_version_sync(server, project, spider, job, version, source='task'):
+def record_job_version_sync(server, project, spider, job, version, source='task',
+                            args=None, group_id=None):
     if not (version and job):
         return
     from ..db_sync import SyncSessionLocal
     try:
         with SyncSessionLocal() as s:
-            _upsert(s, server, project, spider, job, version, source)
+            _upsert(s, server, project, spider, job, version, source, _args_json(args), group_id)
             s.commit()
     except Exception as err:
         logger.warning('Fail to record job version %s/%s=%s: %s', project, job, version, err)
 
 
 async def versions_for_server(server):
-    """{(project, job): version} for one scrapyd server."""
+    """{(project, job): {version, args, group_id}} for one scrapyd server."""
+    import json as _json
     from ..db import SessionLocal
     try:
         async with SessionLocal() as s:
             rows = (await s.execute(select(JobVersion).filter_by(server=server))).scalars().all()
-        return {(r.project, r.job): r.version for r in rows}
+        out = {}
+        for r in rows:
+            try:
+                args = _json.loads(r.args_json or '{}')
+            except (ValueError, TypeError):
+                args = {}
+            out[(r.project, r.job)] = dict(version=r.version, args=args, group_id=r.group_id)
+        return out
+    except Exception:
+        return {}
+
+
+async def args_for_job(server, project, job):
+    """The args dict a job was scheduled with, or {}."""
+    import json as _json
+    from ..db import SessionLocal
+    try:
+        async with SessionLocal() as s:
+            row = (await s.execute(select(JobVersion).filter_by(
+                server=server, project=project, job=job))).scalar_one_or_none()
+        return _json.loads(row.args_json or '{}') if row else {}
     except Exception:
         return {}
 

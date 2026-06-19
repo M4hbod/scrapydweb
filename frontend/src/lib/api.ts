@@ -69,6 +69,7 @@ export interface JobRow {
   pages: number | null
   items: number | null
   version: string | null
+  args: Record<string, string>
   finish_reason: string | null
   start: string | null
   finish: string | null
@@ -141,6 +142,8 @@ export interface JobGroup {
   nodes: number[]
   settings: { key: string; value: string }[]
   args: Record<string, string>
+  notify_enabled: boolean
+  notify_channels: string[]
   fire_path: string
   created_at: string | null
   updated_at: string | null
@@ -212,6 +215,7 @@ export interface LogStatsResponse {
   job: string
   finished: boolean
   version?: string | null
+  args?: Record<string, string>
   url_source: string
   logparser_valid: boolean
   stats?: {

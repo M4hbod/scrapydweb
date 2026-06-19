@@ -60,8 +60,12 @@ const schema = z.object({
   nodes: z.array(z.number()).min(1, "Pick at least one node"),
   settings: z.array(z.object({ key: z.string(), value: z.string() })),
   args: z.array(z.object({ key: z.string(), value: z.string() })),
+  notify_enabled: z.boolean(),
+  notify_channels: z.array(z.string()),
 })
 type GroupFormValues = z.infer<typeof schema>
+
+const ALL_CHANNELS = ["slack", "telegram", "email"] as const
 
 const EMPTY = (node: number): GroupFormValues => ({
   name: "",
@@ -71,6 +75,8 @@ const EMPTY = (node: number): GroupFormValues => ({
   nodes: [node],
   settings: [],
   args: [],
+  notify_enabled: false,
+  notify_channels: [],
 })
 
 function toRecord(v: GroupFormValues): Record<string, unknown> {
@@ -82,6 +88,8 @@ function toRecord(v: GroupFormValues): Record<string, unknown> {
     nodes: v.nodes,
     settings: v.settings.filter((s) => s.key && s.value),
     args: Object.fromEntries(v.args.filter((a) => a.key && a.value).map((a) => [a.key, a.value])),
+    notify_enabled: v.notify_enabled,
+    notify_channels: v.notify_channels,
   }
 }
 
@@ -166,6 +174,8 @@ export default function GroupsPage() {
       nodes: g.nodes.length ? g.nodes : [node],
       settings: g.settings,
       args: Object.entries(g.args).map(([key, value]) => ({ key, value })),
+      notify_enabled: g.notify_enabled,
+      notify_channels: g.notify_channels || [],
     })
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
@@ -294,6 +304,40 @@ export default function GroupsPage() {
                   value={form.watch("nodes")}
                   onChange={(n) => form.setValue("nodes", n, { shouldValidate: true })}
                 />
+              </div>
+
+              <div className="grid gap-2">
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={form.watch("notify_enabled")}
+                    onCheckedChange={(c) => form.setValue("notify_enabled", !!c)}
+                  />
+                  <span className="text-sm font-medium">Send a report when each run finishes</span>
+                </label>
+                {form.watch("notify_enabled") && (
+                  <div className="flex flex-wrap gap-3 pl-6">
+                    {ALL_CHANNELS.map((ch) => {
+                      const sel = form.watch("notify_channels")
+                      return (
+                        <label key={ch} className="flex cursor-pointer items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={sel.includes(ch)}
+                            onCheckedChange={(c) =>
+                              form.setValue(
+                                "notify_channels",
+                                c ? [...sel, ch] : sel.filter((x) => x !== ch),
+                              )
+                            }
+                          />
+                          <span className="capitalize">{ch}</span>
+                        </label>
+                      )
+                    })}
+                    <span className="text-[11px] text-muted-foreground">
+                      none selected = use the global alert channels
+                    </span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -186,14 +186,15 @@ async def api_jobs(request: Request, node: int, page: int = 1, per_page: int = 1
         pages = j.pages if j.pages is not None else (st or {}).get('pages')
         items = j.items if j.items is not None else (st or {}).get('items')
         # re-run reuses the version this job actually ran (else scrapyd picks latest)
-        version = job_versions.get((j.project, j.job))
+        jv = job_versions.get((j.project, j.job)) or {}
+        version = jv.get('version')
         url_start = u(app_, 'api', node=node, opt='start', project=j.project, version_spider_job=j.spider)
         if version and version != DEFAULT_LATEST_VERSION:
             url_start += '?_version=%s' % quote(version, safe='')
         rows.append(dict(
             id=j.id, project=j.project, spider=j.spider, job=j.job,
             status=j.status, pid=j.pid, pages=pages, items=items,
-            version=version,
+            version=version, args=jv.get('args') or {},
             finish_reason=finish_reason,
             start=_dt(j.start), finish=_dt(j.finish), runtime=j.runtime,
             update_time=_dt(j.update_time),

@@ -34,6 +34,8 @@ def group_dict(g):
         id=g.id, name=g.name, project=g.project, version=g.version or '',
         spiders=_load(g.spiders_json, []), nodes=_load(g.nodes_json, [1]),
         settings=_load(g.settings_json, []), args=_load(g.args_json, {}),
+        notify_enabled=bool(g.notify_enabled),
+        notify_channels=_load(g.notify_channels_json, []),
         fire_path='/api/groups/%s/fire' % g.id,
         created_at=str(g.created_at)[:19] if g.created_at else None,
         updated_at=str(g.updated_at)[:19] if g.updated_at else None,
@@ -74,6 +76,12 @@ def _validate(body, partial=False):
         fields['args_json'] = json.dumps(
             {str(k): str(v) for k, v in raw.items()
              if re.match(r'^[a-zA-Z_][0-9a-zA-Z_]*$', str(k))})
+    if 'notify_enabled' in body:
+        fields['notify_enabled'] = bool(body.get('notify_enabled'))
+    if 'notify_channels' in body:
+        raw = body.get('notify_channels') or []
+        fields['notify_channels_json'] = json.dumps(
+            [c for c in raw if c in ('slack', 'telegram', 'email')])
     return fields, None
 
 
@@ -169,7 +177,7 @@ async def groups_schedule(request: Request, group_id: int):
         snap['project'], snap['version'] or DEFAULT_LATEST_VERSION, snap['spiders'],
         snap['nodes'], setting_list, extra_args, base,
         name=(body.get('name') or snap['name']), action=body.get('action') or 'add',
-        cron=cron_fields_from(body))
+        cron=cron_fields_from(body), group_id=group_id)
     scheduled = sum(1 for c in created if c['status'] == 'ok')
     return JSONResponse(dict(status='ok', scheduled=scheduled, total=len(created), results=created))
 
@@ -199,6 +207,6 @@ async def groups_fire(request: Request, group_id: int):
     base = re.sub(LEGAL_NAME_PATTERN, '-', '%s_%s' % (snap['name'], get_now_string()))
     results = await run_group_now(
         app, servers, auths, snap['project'], snap['version'] or DEFAULT_LATEST_VERSION,
-        snap['spiders'], snap['nodes'], setting_list, extra_args, base)
+        snap['spiders'], snap['nodes'], setting_list, extra_args, base, group_id=group_id)
     scheduled = sum(1 for r in results if r['status'] == 'ok')
     return JSONResponse(dict(status='ok', scheduled=scheduled, total=len(results), results=results))

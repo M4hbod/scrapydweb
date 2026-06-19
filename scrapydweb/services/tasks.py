@@ -50,13 +50,17 @@ def _request_scrapyd_sync(url, data, auth):
 
 
 class TaskExecutor:
-    def __init__(self, task_id, task_name, project, version, spider, settings_arguments, selected_nodes):
+    def __init__(self, task_id, task_name, project, version, spider, settings_arguments,
+                 selected_nodes, group_id=None):
         s = _settings()
         self.servers = s.get('SCRAPYD_SERVERS', []) or []
         self.auths = s.get('SCRAPYD_SERVERS_AUTHS', []) or [None]
         self.task_id = task_id
         self.task_name = task_name
         self.version = version
+        self.group_id = group_id
+        # spider args the job runs with (exclude scrapy settings + reserved keys)
+        self.args = {k: v for k, v in dict(settings_arguments).items() if k != 'setting'}
         self.data = dict(settings_arguments)
         self.data['project'] = project
         if version != DEFAULT_LATEST_VERSION:
@@ -119,7 +123,8 @@ class TaskExecutor:
                 from .job_versions import record_job_version_sync, resolve_version_sync
                 resolved = resolve_version_sync(server, auth, self.data['project'], self.version)
                 record_job_version_sync(server, self.data['project'], self.data['spider'],
-                                        js['jobid'], resolved, source='task')
+                                        js['jobid'], resolved, source='task',
+                                        args=self.args, group_id=self.group_id)
         except Exception as err:
             if node not in self.nodes_to_retry:
                 apscheduler_logger.warning("Fail to execute task #%s (%s) on node %s, would retry later: %s",
@@ -158,7 +163,7 @@ def execute_task(task_id):
         return
     executor = TaskExecutor(task_id=task_id, task_name=task.name, project=task.project, version=task.version,
                             spider=task.spider, settings_arguments=json.loads(task.settings_arguments),
-                            selected_nodes=json.loads(task.selected_nodes))
+                            selected_nodes=json.loads(task.selected_nodes), group_id=task.group_id)
     try:
         executor.main()
     except Exception:
