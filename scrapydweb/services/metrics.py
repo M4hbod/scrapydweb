@@ -66,6 +66,20 @@ def _finished(reason):
     return reason not in (None, '', 'N/A')
 
 
+# A run counts as failed ONLY for genuine error/abort reasons. Anything else that
+# reached a finish_reason is a success — including 'finished' AND controlled stops
+# (CLOSESPIDER_PAGECOUNT/ITEMCOUNT/TIMEOUT, or a custom CloseSpider("...") raised on
+# purpose). Classifying ok as `== 'finished'` wrongly flags every deliberate early
+# stop as a failure.
+_FAILED_REASONS = frozenset({
+    'cancelled', 'shutdown', 'closespider_errorcount', 'memusage_exceeded',
+})
+
+
+def _ok(reason):
+    return reason not in _FAILED_REASONS
+
+
 class _Agg:
     __slots__ = ('items', 'pages', 'ok', 'failed', 'last_ts', 'last_items',
                  'last_pages', 'last_ok', 'running', 'pending', 'run_max_rt')
@@ -118,7 +132,7 @@ async def render_prometheus(app):
                 pages = int(r.pages or 0)
                 a.items += items
                 a.pages += pages
-                ok = r.finish_reason == 'finished'
+                ok = _ok(r.finish_reason)
                 if ok:
                     a.ok += 1
                 else:
