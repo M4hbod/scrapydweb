@@ -73,6 +73,7 @@ def _finished(reason):
 # stop as a failure.
 _FAILED_REASONS = frozenset({
     'cancelled', 'shutdown', 'closespider_errorcount', 'memusage_exceeded',
+    'error',  # streamwide spiders raise CloseSpider("error") on genuine failures
 })
 
 
