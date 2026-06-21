@@ -533,21 +533,7 @@ function FieldControl({
   }
 
   if (f.type === "list_str" || f.type === "list_int") {
-    const list = Array.isArray(value) ? value : []
-    return (
-      <Input
-        value={list.join(", ")}
-        placeholder="comma separated"
-        onChange={(e) => {
-          const parts = e.target.value
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-          onChange(f.type === "list_int" ? parts.map(Number) : parts)
-        }}
-        className="h-8 w-64 font-mono text-xs"
-      />
-    )
+    return <ListInput field={f} value={value} onChange={onChange} />
   }
 
   // str
@@ -563,6 +549,45 @@ function FieldControl({
     <Input
       value={String(value ?? "")}
       onChange={(e) => onChange(e.target.value)}
+      className="h-8 w-64 font-mono text-xs"
+    />
+  )
+}
+
+// Comma-separated list editor. Keeps the raw text in local state while typing so a
+// trailing comma / space survives keystrokes (parsing on every change would strip the
+// empty segment and the comma would vanish). Emits the parsed array to the parent;
+// resyncs to the normalized value when not actively editing.
+function ListInput({
+  field: f,
+  value,
+  onChange,
+}: {
+  field: SettingFieldDto
+  value: unknown
+  onChange: (v: unknown) => void
+}) {
+  const canonical = (Array.isArray(value) ? value : []).join(", ")
+  const [text, setText] = React.useState(canonical)
+  const [editing, setEditing] = React.useState(false)
+  React.useEffect(() => {
+    if (!editing) setText(canonical)
+  }, [canonical, editing])
+  return (
+    <Input
+      value={text}
+      placeholder="comma separated"
+      inputMode={f.type === "list_int" ? "numeric" : undefined}
+      onFocus={() => setEditing(true)}
+      onBlur={() => setEditing(false)}
+      onChange={(e) => {
+        setText(e.target.value)
+        const parts = e.target.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+        onChange(f.type === "list_int" ? parts.map(Number) : parts)
+      }}
       className="h-8 w-64 font-mono text-xs"
     />
   )
