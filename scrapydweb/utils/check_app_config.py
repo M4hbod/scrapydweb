@@ -35,9 +35,12 @@ SCRAPYD_SERVER_PATTERN = re.compile(r"""
 
 
 def check_app_config(config):
-    def check_assert(key, default, is_instance, allow_zero=True, non_empty=False, containing_type=None):
+    def check_assert(key, default, is_instance, allow_zero=True, allow_negative=False, non_empty=False, containing_type=None):
         if is_instance is int:
-            if allow_zero:
+            if allow_negative:
+                # e.g. Telegram chat ids: groups/channels are negative (-100...)
+                should_be = "an integer" if allow_zero else "a non-zero integer"
+            elif allow_zero:
                 should_be = "a non-negative integer"
             else:
                 should_be = "a positive integer"
@@ -55,7 +58,8 @@ def check_app_config(config):
 
         assert (isinstance(value, is_instance)
                 and (not isinstance(value, bool) if is_instance is int else True)  # isinstance(True, int) => True
-                and (value > (-1 if allow_zero else 0) if is_instance is int else True)
+                and (((value != 0 or allow_zero) if allow_negative else value > (-1 if allow_zero else 0))
+                     if is_instance is int else True)
                 and (value if non_empty else True)
                 and (all([isinstance(i, containing_type) for i in value]) if containing_type else True)), to_assert
 
@@ -146,7 +150,7 @@ def check_app_config(config):
     config['SLACK_CHANNEL'] = config['SLACK_CHANNEL'] or 'general'
 
     check_assert('TELEGRAM_TOKEN', '', str)
-    check_assert('TELEGRAM_CHAT_ID', 0, int)
+    check_assert('TELEGRAM_CHAT_ID', 0, int, allow_negative=True)
 
     check_assert('EMAIL_PASSWORD', '', str)
     if config.get('EMAIL_PASSWORD', ''):
@@ -209,7 +213,7 @@ def check_app_config(config):
             check_slack_telegram(config, service='slack')
         if config.get('ENABLE_TELEGRAM_ALERT', False):
             check_assert('TELEGRAM_TOKEN', '', str, non_empty=True)
-            check_assert('TELEGRAM_CHAT_ID', 0, int, allow_zero=False)
+            check_assert('TELEGRAM_CHAT_ID', 0, int, allow_zero=False, allow_negative=True)
             check_slack_telegram(config, service='telegram')
         if config.get('ENABLE_EMAIL_ALERT', False):
             check_assert('EMAIL_PASSWORD', '', str, non_empty=True)
