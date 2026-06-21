@@ -25,6 +25,8 @@ def register_routers(app):
     app.include_router(projects.router)
     app.include_router(groups.router)
     app.include_router(tokens.router)
+    from . import metrics
+    app.include_router(metrics.router)
     app.include_router(webhooks.router)
     app.include_router(schedule.router)
     app.include_router(tasks.router)
