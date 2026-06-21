@@ -68,8 +68,9 @@ def _finish_report(settings, node, row, stats):
     url = '%s/log/%s/stats/%s/%s/%s' % (
         settings.get('URL_SCRAPYDWEB', 'http://127.0.0.1:5000'),
         node, row.project, row.spider, row.job)
-    if fr == 'finished' and not errors:
-        subject = '✅ %s/%s finished' % (row.project, row.spider)
+    from .metrics import _FAILED_REASONS
+    if fr not in _FAILED_REASONS and not errors:
+        subject = '✅ %s/%s %s' % (row.project, row.spider, fr)
         body = 'items: %s · pages: %s · %s' % (items, pages, runtime or 'N/A')
     else:
         subject = '❌ %s/%s %s' % (row.project, row.spider, fr)

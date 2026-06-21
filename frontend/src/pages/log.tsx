@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StatusPill } from "@/components/status-pill"
 import { api, type LogStatsResponse, type LogTextResponse } from "@/lib/api"
 import { fmtDateTime } from "@/lib/datetime"
+import { isFailedReason } from "@/lib/utils"
 
 export default function LogPage() {
   const { node: nodeParam, opt, project, spider, job } = useParams()
@@ -347,7 +348,7 @@ export function StatsPanel({
         <KpiCell
           label="Finish reason"
           value={s.finish_reason ?? "N/A"}
-          tone={s.finish_reason === "finished" ? "ok" : s.finish_reason === "N/A" ? "muted" : "warn"}
+          tone={!s.finish_reason || s.finish_reason === "N/A" ? "muted" : isFailedReason(s.finish_reason) ? "warn" : "ok"}
         />
       </div>
 

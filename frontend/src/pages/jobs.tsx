@@ -60,7 +60,7 @@ import { StatusPill } from "@/components/status-pill"
 import { api, postJSON, type JobRow } from "@/lib/api"
 import { fmtDateTime, parseServerDate } from "@/lib/datetime"
 import { useNode } from "@/lib/node-context"
-import { cn } from "@/lib/utils"
+import { cn, isFailedReason } from "@/lib/utils"
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   "0": { label: "PENDING", cls: "pend" },
@@ -113,7 +113,7 @@ export default function JobsPage() {
         header: "Status",
         cell: ({ row }) => {
           const j = row.original
-          if (j.status === "2" && j.finish_reason && j.finish_reason !== "finished")
+          if (j.status === "2" && isFailedReason(j.finish_reason))
             return <StatusPill status="err" label="FAILED" />
           const s = STATUS[j.status] ?? STATUS["2"]
           return <StatusPill status={s.cls} label={s.label} />
@@ -277,8 +277,7 @@ export default function JobsPage() {
   const all = React.useMemo(() => data?.jobs ?? [], [data])
   const jobs = React.useMemo(() => {
     const needle = q.trim().toLowerCase()
-    const failed = (j: JobRow) =>
-      j.status === "2" && !!j.finish_reason && j.finish_reason !== "finished"
+    const failed = (j: JobRow) => j.status === "2" && isFailedReason(j.finish_reason)
     return all.filter((j) => {
       if (status === "failed") {
         if (!failed(j)) return false
@@ -475,8 +474,8 @@ const RUN_COLORS = {
 
 function runColor(j: JobRow) {
   if (j.status === "1") return RUN_COLORS.running
-  if (j.finish_reason === "finished") return RUN_COLORS.ok
-  if (j.finish_reason) return RUN_COLORS.bad // shutdown / closespider_* / cancelled...
+  if (isFailedReason(j.finish_reason)) return RUN_COLORS.bad // shutdown / closespider_errorcount / cancelled / error
+  if (j.finish_reason && j.finish_reason !== "N/A") return RUN_COLORS.ok // finished or deliberate stop
   return RUN_COLORS.unknown
 }
 
