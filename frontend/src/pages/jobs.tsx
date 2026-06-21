@@ -132,9 +132,17 @@ export default function JobsPage() {
       {
         accessorKey: "job",
         header: "Job ID",
-        cell: ({ getValue }) => (
-          <span className="font-mono text-xs text-muted-foreground">{getValue<string>()}</span>
-        ),
+        cell: ({ getValue }) => {
+          const v = getValue<string>()
+          return (
+            <span
+              className="block max-w-[200px] truncate font-mono text-xs text-muted-foreground"
+              title={v}
+            >
+              {v}
+            </span>
+          )
+        },
       },
       {
         accessorKey: "version",
