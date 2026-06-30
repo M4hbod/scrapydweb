@@ -6,6 +6,8 @@ logs over HTTP, parses them with logparser's pure parse(), and stores the
 result in the job_stats table. Runs as an apscheduler interval job (see
 register_system_jobs) in a background thread -- everything here is sync.
 """
+import ctypes
+import ctypes.util
 import gzip
 import logging
 import re
@@ -19,6 +21,21 @@ from ..models import JobStats
 logger = logging.getLogger(__name__)
 
 MAX_LOG_BYTES = 20 * 1024 * 1024  # logs larger than this are skipped (size recorded)
+
+try:
+    _LIBC = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=False)
+except Exception:  # non-glibc / Windows
+    _LIBC = None
+
+
+def _malloc_trim():
+    """Return freed heap back to the OS after a cycle's transient allocations
+    (multi-MB log bodies). glibc only; no-op elsewhere."""
+    if _LIBC is not None:
+        try:
+            _LIBC.malloc_trim(0)
+        except Exception:
+            pass
 DEFAULT_EXTENSIONS = ['.log', '.log.gz', '.txt', '.gz', '']
 CONTENT_RANGE_PATTERN = re.compile(r'bytes \d+-\d+/(\d+)')
 
@@ -167,4 +184,5 @@ def collect_all(config):
             s.close()
     if total:
         logger.info('stats_collector: parsed %s job log(s)', total)
+    _malloc_trim()
     return total
