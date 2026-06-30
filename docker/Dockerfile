@@ -14,7 +14,15 @@ FROM public.ecr.aws/docker/library/python:3.13-slim AS app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    # Cap glibc malloc arenas. scrapydweb runs two BackgroundScheduler thread
+    # pools (timer tasks + system jobs) plus uvicorn; on a many-core host glibc
+    # would otherwise spread freed memory across ~8*ncores arenas and never
+    # return it, so RSS ratchets upward for days even with no logical leak (the
+    # collector parses multi-MB log bodies as transients). 2 arenas + a low trim
+    # threshold keep RSS flat.
+    MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072
 # git: the "deploy from git" feature. gosu: entrypoint drops root -> app user.
 RUN apt-get update && apt-get install -y --no-install-recommends git gosu \
     && rm -rf /var/lib/apt/lists/*
